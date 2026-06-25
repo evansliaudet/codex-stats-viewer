@@ -1,0 +1,11 @@
+{
+  "codexHome": "~/.codex",
+  "refreshIntervalSeconds": 60,
+  "modelPrices": {
+    "gpt-5.5": {
+      "inputPerMillion": 5.0,
+      "cachedInputPerMillion": 0.5,
+      "outputPerMillion": 30.0
+    }
+  }
+}

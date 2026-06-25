@@ -1,0 +1,317 @@
+import Foundation
+
+struct CodexUsageSnapshot {
+    let capturedAt: Date
+    let latestEventDate: Date?
+    let latestModel: String?
+    let primaryLimit: RateLimitSnapshot?
+    let weeklyLimit: RateLimitSnapshot?
+    let today: CostSummary
+    let last30Days: CostSummary
+}
+
+struct RateLimitSnapshot {
+    let usedPercent: Double
+    let windowMinutes: Int
+    let resetsAt: Date?
+}
+
+struct CostSummary {
+    var calls = 0
+    var inputTokens = 0
+    var cachedInputTokens = 0
+    var outputTokens = 0
+    var totalTokens = 0
+    var estimatedCost = 0.0
+
+    mutating func add(_ usage: TokenUsage, cost: Double) {
+        calls += 1
+        inputTokens += usage.inputTokens
+        cachedInputTokens += usage.cachedInputTokens
+        outputTokens += usage.outputTokens
+        totalTokens += usage.totalTokens
+        estimatedCost += cost
+    }
+}
+
+struct TokenUsage {
+    let inputTokens: Int
+    let cachedInputTokens: Int
+    let outputTokens: Int
+    let totalTokens: Int
+}
+
+private struct SessionFile {
+    let path: String
+    let model: String?
+}
+
+final class CodexUsageStore {
+    private let config: AppConfig
+    private let calendar: Calendar
+    private let isoFormatter: ISO8601DateFormatter
+    private let isoFormatterWithoutFractions: ISO8601DateFormatter
+
+    init(config: AppConfig, calendar: Calendar = .current) {
+        self.config = config
+        self.calendar = calendar
+
+        isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        isoFormatterWithoutFractions = ISO8601DateFormatter()
+        isoFormatterWithoutFractions.formatOptions = [.withInternetDateTime]
+    }
+
+    func loadSnapshot() throws -> CodexUsageSnapshot {
+        let now = Date()
+        let todayStart = calendar.startOfDay(for: now)
+        let last30DaysStart = calendar.date(byAdding: .day, value: -30, to: todayStart)
+            ?? now.addingTimeInterval(-30 * 24 * 60 * 60)
+
+        let sessionFiles = try recentSessionFiles(startingAt: last30DaysStart)
+        var today = CostSummary()
+        var last30Days = CostSummary()
+        var latestEventDate: Date?
+        var latestModel: String?
+        var primaryLimit: RateLimitSnapshot?
+        var weeklyLimit: RateLimitSnapshot?
+
+        for sessionFile in sessionFiles {
+            parseSessionFile(sessionFile) { event in
+                if latestEventDate == nil || event.date > latestEventDate! {
+                    latestEventDate = event.date
+                    latestModel = event.model
+                    primaryLimit = event.primaryLimit
+                    weeklyLimit = event.weeklyLimit
+                }
+
+                guard let usage = event.usage else {
+                    return
+                }
+
+                let cost = estimatedCost(for: usage, model: event.model)
+
+                if event.date >= last30DaysStart {
+                    last30Days.add(usage, cost: cost)
+                }
+
+                if event.date >= todayStart {
+                    today.add(usage, cost: cost)
+                }
+            }
+        }
+
+        return CodexUsageSnapshot(
+            capturedAt: now,
+            latestEventDate: latestEventDate,
+            latestModel: latestModel,
+            primaryLimit: primaryLimit,
+            weeklyLimit: weeklyLimit,
+            today: today,
+            last30Days: last30Days
+        )
+    }
+
+    private func recentSessionFiles(startingAt startDate: Date) throws -> [SessionFile] {
+        let cutoff = Int(startDate.timeIntervalSince1970)
+        let query = """
+        select rollout_path, coalesce(model, '')
+        from threads
+        where rollout_path <> ''
+          and (updated_at >= \(cutoff) or recency_at >= \(cutoff))
+        order by updated_at desc
+        """
+
+        let output = try runSQLite(query: query)
+        var seenPaths = Set<String>()
+        var sessionFiles: [SessionFile] = []
+
+        for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
+            let columns = line.split(separator: "\t", omittingEmptySubsequences: false)
+            guard let firstColumn = columns.first else {
+                continue
+            }
+
+            let path = String(firstColumn)
+            guard FileManager.default.fileExists(atPath: path), !seenPaths.contains(path) else {
+                continue
+            }
+
+            seenPaths.insert(path)
+            let model = columns.count > 1 && !columns[1].isEmpty ? String(columns[1]) : nil
+            sessionFiles.append(SessionFile(path: path, model: model))
+        }
+
+        return sessionFiles
+    }
+
+    private func runSQLite(query: String) throws -> String {
+        let process = Process()
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+        process.arguments = ["-separator", "\t", config.stateDatabaseURL.path, query]
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        try process.run()
+        process.waitUntilExit()
+
+        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+
+        if process.terminationStatus != 0 {
+            let errorText = String(data: errorData, encoding: .utf8) ?? "sqlite3 failed"
+            throw CodexUsageError.sqlite(errorText.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+
+        return String(data: outputData, encoding: .utf8) ?? ""
+    }
+
+    private func parseSessionFile(_ sessionFile: SessionFile, onEvent: (ParsedUsageEvent) -> Void) {
+        guard let content = try? String(contentsOfFile: sessionFile.path, encoding: .utf8) else {
+            return
+        }
+
+        var currentModel = sessionFile.model
+
+        for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard line.contains(#""type":"event_msg""#) || line.contains(#""type":"turn_context""#) else {
+                continue
+            }
+
+            guard let data = String(line).data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let type = object["type"] as? String else {
+                continue
+            }
+
+            if type == "turn_context",
+               let payload = object["payload"] as? [String: Any],
+               let model = payload["model"] as? String {
+                currentModel = model
+                continue
+            }
+
+            guard type == "event_msg",
+                  let payload = object["payload"] as? [String: Any],
+                  payload["type"] as? String == "token_count",
+                  let timestamp = date(from: object["timestamp"] as? String) else {
+                continue
+            }
+
+            let info = payload["info"] as? [String: Any]
+            let rateLimits = payload["rate_limits"] as? [String: Any]
+
+            let usage = tokenUsage(from: info?["last_token_usage"] as? [String: Any])
+            let event = ParsedUsageEvent(
+                date: timestamp,
+                model: currentModel ?? sessionFile.model,
+                usage: usage,
+                primaryLimit: rateLimit(from: rateLimits?["primary"] as? [String: Any]),
+                weeklyLimit: rateLimit(from: rateLimits?["secondary"] as? [String: Any])
+            )
+
+            onEvent(event)
+        }
+    }
+
+    private func tokenUsage(from dictionary: [String: Any]?) -> TokenUsage? {
+        guard let dictionary,
+              let inputTokens = intValue(dictionary["input_tokens"]),
+              let outputTokens = intValue(dictionary["output_tokens"]),
+              let totalTokens = intValue(dictionary["total_tokens"]) else {
+            return nil
+        }
+
+        return TokenUsage(
+            inputTokens: inputTokens,
+            cachedInputTokens: intValue(dictionary["cached_input_tokens"]) ?? 0,
+            outputTokens: outputTokens,
+            totalTokens: totalTokens
+        )
+    }
+
+    private func rateLimit(from dictionary: [String: Any]?) -> RateLimitSnapshot? {
+        guard let dictionary,
+              let usedPercent = doubleValue(dictionary["used_percent"]),
+              let windowMinutes = intValue(dictionary["window_minutes"]) else {
+            return nil
+        }
+
+        let resetsAt = doubleValue(dictionary["resets_at"]).map { Date(timeIntervalSince1970: $0) }
+
+        return RateLimitSnapshot(
+            usedPercent: usedPercent,
+            windowMinutes: windowMinutes,
+            resetsAt: resetsAt
+        )
+    }
+
+    private func estimatedCost(for usage: TokenUsage, model: String?) -> Double {
+        guard let model,
+              let price = config.modelPrices[model] else {
+            return 0
+        }
+
+        let uncachedInputTokens = max(usage.inputTokens - usage.cachedInputTokens, 0)
+        let inputCost = Double(uncachedInputTokens) / 1_000_000 * price.inputPerMillion
+        let cachedInputCost = Double(usage.cachedInputTokens) / 1_000_000 * price.cachedInputPerMillion
+        let outputCost = Double(usage.outputTokens) / 1_000_000 * price.outputPerMillion
+
+        return inputCost + cachedInputCost + outputCost
+    }
+
+    private func date(from string: String?) -> Date? {
+        guard let string else {
+            return nil
+        }
+
+        return isoFormatter.date(from: string) ?? isoFormatterWithoutFractions.date(from: string)
+    }
+
+    private func intValue(_ value: Any?) -> Int? {
+        if let int = value as? Int {
+            return int
+        }
+
+        if let number = value as? NSNumber {
+            return number.intValue
+        }
+
+        return nil
+    }
+
+    private func doubleValue(_ value: Any?) -> Double? {
+        if let double = value as? Double {
+            return double
+        }
+
+        if let number = value as? NSNumber {
+            return number.doubleValue
+        }
+
+        return nil
+    }
+}
+
+private struct ParsedUsageEvent {
+    let date: Date
+    let model: String?
+    let usage: TokenUsage?
+    let primaryLimit: RateLimitSnapshot?
+    let weeklyLimit: RateLimitSnapshot?
+}
+
+enum CodexUsageError: LocalizedError {
+    case sqlite(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .sqlite(let message):
+            return "Could not read Codex state database: \(message)"
+        }
+    }
+}
