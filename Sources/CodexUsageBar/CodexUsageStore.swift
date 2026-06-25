@@ -76,14 +76,38 @@ final class CodexUsageStore {
         var latestModel: String?
         var primaryLimit: RateLimitSnapshot?
         var weeklyLimit: RateLimitSnapshot?
+        var primaryLimitDate: Date?
+        var weeklyLimitDate: Date?
+        var primaryLimitReachedDate: Date?
+        var weeklyLimitReachedDate: Date?
 
         for sessionFile in sessionFiles {
             parseSessionFile(sessionFile) { event in
                 if latestEventDate == nil || event.date > latestEventDate! {
                     latestEventDate = event.date
                     latestModel = event.model
-                    primaryLimit = event.primaryLimit
-                    weeklyLimit = event.weeklyLimit
+                }
+
+                if let eventPrimaryLimit = event.primaryLimit,
+                   primaryLimitDate == nil || event.date > primaryLimitDate! {
+                    primaryLimit = eventPrimaryLimit
+                    primaryLimitDate = event.date
+                }
+
+                if let eventWeeklyLimit = event.weeklyLimit,
+                   weeklyLimitDate == nil || event.date > weeklyLimitDate! {
+                    weeklyLimit = eventWeeklyLimit
+                    weeklyLimitDate = event.date
+                }
+
+                if event.reachedPrimaryLimit,
+                   primaryLimitReachedDate == nil || event.date > primaryLimitReachedDate! {
+                    primaryLimitReachedDate = event.date
+                }
+
+                if event.reachedWeeklyLimit,
+                   weeklyLimitReachedDate == nil || event.date > weeklyLimitReachedDate! {
+                    weeklyLimitReachedDate = event.date
                 }
 
                 guard let usage = event.usage else {
@@ -100,6 +124,24 @@ final class CodexUsageStore {
                     today.add(usage, cost: cost)
                 }
             }
+        }
+
+        if let primaryLimitReachedDate,
+           primaryLimitDate == nil || primaryLimitReachedDate > primaryLimitDate! {
+            primaryLimit = RateLimitSnapshot(
+                usedPercent: 100,
+                windowMinutes: primaryLimit?.windowMinutes ?? 300,
+                resetsAt: primaryLimit?.resetsAt
+            )
+        }
+
+        if let weeklyLimitReachedDate,
+           weeklyLimitDate == nil || weeklyLimitReachedDate > weeklyLimitDate! {
+            weeklyLimit = RateLimitSnapshot(
+                usedPercent: 100,
+                windowMinutes: weeklyLimit?.windowMinutes ?? 10_080,
+                resetsAt: weeklyLimit?.resetsAt
+            )
         }
 
         return CodexUsageSnapshot(
@@ -211,7 +253,8 @@ final class CodexUsageStore {
                 model: currentModel ?? sessionFile.model,
                 usage: usage,
                 primaryLimit: rateLimit(from: rateLimits?["primary"] as? [String: Any]),
-                weeklyLimit: rateLimit(from: rateLimits?["secondary"] as? [String: Any])
+                weeklyLimit: rateLimit(from: rateLimits?["secondary"] as? [String: Any]),
+                rateLimitReachedType: rateLimits?["rate_limit_reached_type"] as? String
             )
 
             onEvent(event)
@@ -303,6 +346,19 @@ private struct ParsedUsageEvent {
     let usage: TokenUsage?
     let primaryLimit: RateLimitSnapshot?
     let weeklyLimit: RateLimitSnapshot?
+    let rateLimitReachedType: String?
+
+    var reachedPrimaryLimit: Bool {
+        reachedLimit(named: "primary")
+    }
+
+    var reachedWeeklyLimit: Bool {
+        reachedLimit(named: "secondary") || reachedLimit(named: "weekly")
+    }
+
+    private func reachedLimit(named name: String) -> Bool {
+        rateLimitReachedType?.localizedCaseInsensitiveContains(name) ?? false
+    }
 }
 
 enum CodexUsageError: LocalizedError {
