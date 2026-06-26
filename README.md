@@ -43,6 +43,11 @@ Example:
 {
   "codexHome": "~/.codex",
   "refreshIntervalSeconds": 60,
+  "leaderboardURL": "https://codex-usage-leaderboard.evanss.workers.dev",
+  "leaderboardToken": "optional-worker-secret",
+  "leaderboardTeamId": "friends",
+  "leaderboardUserId": "optional-fixed-user-id",
+  "leaderboardDisplayName": "Optional Display Name",
   "modelPrices": {
     "gpt-5.5": {
       "inputPerMillion": 5.0,
@@ -62,6 +67,19 @@ swift run
 ```
 
 Use `CODEX_USAGE_CONFIG=/path/to/config.json` for a custom config file.
+
+The friends leaderboard is enabled by default against the bundled Worker URL and shared Worker token. The app creates a stable local user ID on first launch and uses the Codex account name from local auth claims as the display name when available. Override the values below only when testing or pointing at another Worker.
+
+Optional leaderboard environment variables:
+
+```sh
+CODEX_USAGE_LEADERBOARD_URL=https://codex-usage-leaderboard.evanss.workers.dev \
+CODEX_USAGE_LEADERBOARD_TOKEN=your-worker-secret \
+CODEX_USAGE_LEADERBOARD_TEAM_ID=friends \
+CODEX_USAGE_LEADERBOARD_USER_ID=evans \
+CODEX_USAGE_LEADERBOARD_DISPLAY_NAME=Evans \
+swift run
+```
 
 ## Run
 

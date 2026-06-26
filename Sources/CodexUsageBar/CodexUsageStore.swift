@@ -7,6 +7,7 @@ struct CodexUsageSnapshot {
     let primaryLimit: RateLimitSnapshot?
     let weeklyLimit: RateLimitSnapshot?
     let today: CostSummary
+    let last7Days: CostSummary
     let last30Days: CostSummary
 }
 
@@ -66,11 +67,14 @@ final class CodexUsageStore {
     func loadSnapshot() throws -> CodexUsageSnapshot {
         let now = Date()
         let todayStart = calendar.startOfDay(for: now)
+        let last7DaysStart = calendar.date(byAdding: .day, value: -7, to: now)
+            ?? now.addingTimeInterval(-7 * 24 * 60 * 60)
         let last30DaysStart = calendar.date(byAdding: .day, value: -30, to: todayStart)
             ?? now.addingTimeInterval(-30 * 24 * 60 * 60)
 
         let sessionFiles = try recentSessionFiles(startingAt: last30DaysStart)
         var today = CostSummary()
+        var last7Days = CostSummary()
         var last30Days = CostSummary()
         var latestEventDate: Date?
         var latestModel: String?
@@ -120,6 +124,10 @@ final class CodexUsageStore {
                     last30Days.add(usage, cost: cost)
                 }
 
+                if event.date >= last7DaysStart {
+                    last7Days.add(usage, cost: cost)
+                }
+
                 if event.date >= todayStart {
                     today.add(usage, cost: cost)
                 }
@@ -154,6 +162,7 @@ final class CodexUsageStore {
             primaryLimit: primaryLimit,
             weeklyLimit: weeklyLimit,
             today: today,
+            last7Days: last7Days,
             last30Days: last30Days
         )
     }

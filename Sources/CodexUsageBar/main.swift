@@ -25,8 +25,8 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
     }()
     private let currencyFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = "USD"
+        formatter.numberStyle = .decimal
+        formatter.usesGroupingSeparator = true
         formatter.minimumFractionDigits = 2
         formatter.maximumFractionDigits = 2
         return formatter
@@ -55,6 +55,9 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
     private var spinnerTimer: Timer?
     private var config: AppConfig?
     private var store: CodexUsageStore?
+    private var leaderboardClient: LeaderboardClient?
+    private var leaderboardEntries: [LeaderboardEntry] = []
+    private var leaderboardError: String?
     private var snapshot: CodexUsageSnapshot?
     private var isRefreshing = false
     private var spinnerIndex = 0
@@ -67,6 +70,9 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
             let config = try AppConfig.load()
             self.config = config
             store = CodexUsageStore(config: config)
+            if let leaderboardConfig = config.leaderboard {
+                leaderboardClient = LeaderboardClient(config: leaderboardConfig)
+            }
             timer = Timer.scheduledTimer(withTimeInterval: config.refreshInterval, repeats: true) { [weak self] _ in
                 self?.refresh()
             }
@@ -154,6 +160,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         case .success(let snapshot):
             self.snapshot = snapshot
             showSnapshot(snapshot)
+            publishLeaderboard(snapshot)
         case .failure(let error):
             showError(error)
         }
@@ -195,6 +202,11 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
             statusMenu.addItem(emptyItem)
         }
 
+        if leaderboardClient != nil {
+            statusMenu.addItem(.separator())
+            addLeaderboardDetails()
+        }
+
         statusMenu.addItem(.separator())
         statusMenu.addItem(refreshMenuItem)
         statusMenu.addItem(checkForUpdatesMenuItem)
@@ -220,6 +232,100 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
 
         if let latestEventDate = snapshot.latestEventDate {
             statusMenu.addItem(textItem("Updated: \(relativeFormatter.localizedString(for: latestEventDate, relativeTo: Date()))", color: .secondaryLabelColor))
+        }
+    }
+
+    private func addLeaderboardDetails() {
+        if let leaderboardError {
+            statusMenu.addItem(textItem("Leaderboard unavailable: \(leaderboardError)", color: .secondaryLabelColor))
+            return
+        }
+
+        guard !leaderboardEntries.isEmpty else {
+            statusMenu.addItem(textItem("No friends loaded yet", color: .secondaryLabelColor))
+            return
+        }
+
+        statusMenu.addItem(textItem("Friends today", color: .secondaryLabelColor))
+        statusMenu.addItem(leaderboardItem(
+            entries: topLeaderboardEntries { $0.todayTokens },
+            tokenValue: { $0.todayTokens },
+            costValue: { $0.todayEstimatedCost }
+        ))
+
+        statusMenu.addItem(textItem("Friends last 7 days", color: .secondaryLabelColor))
+        statusMenu.addItem(leaderboardItem(
+            entries: topLeaderboardEntries { $0.last7DaysTokens },
+            tokenValue: { $0.last7DaysTokens },
+            costValue: { $0.last7DaysEstimatedCost }
+        ))
+
+        statusMenu.addItem(textItem("Friends last 30 days", color: .secondaryLabelColor))
+        statusMenu.addItem(leaderboardItem(
+            entries: topLeaderboardEntries { $0.last30DaysTokens },
+            tokenValue: { $0.last30DaysTokens },
+            costValue: { $0.last30DaysEstimatedCost }
+        ))
+    }
+
+    private func leaderboardItem(
+        entries: [LeaderboardEntry],
+        tokenValue: (LeaderboardEntry) -> Int,
+        costValue: (LeaderboardEntry) -> Double
+    ) -> NSMenuItem {
+        let rowHeight: CGFloat = 30
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: CGFloat(entries.count) * rowHeight))
+
+        for (index, entry) in entries.enumerated() {
+            let y = CGFloat(entries.count - index - 1) * rowHeight + 6
+            view.addSubview(label(
+                "\(rankText(for: index)) \(entry.displayName)",
+                frame: NSRect(x: 14, y: y, width: 156, height: 18),
+                font: .systemFont(ofSize: 13),
+                color: .labelColor
+            ))
+            view.addSubview(label(
+                "\(formatted(tokenValue(entry))) tok",
+                frame: NSRect(x: 176, y: y, width: 76, height: 18),
+                font: .monospacedDigitSystemFont(ofSize: 12, weight: .regular),
+                color: .secondaryLabelColor
+            ))
+            view.addSubview(label(
+                formattedCurrency(costValue(entry)),
+                frame: NSRect(x: 252, y: y, width: 54, height: 18),
+                font: .monospacedDigitSystemFont(ofSize: 12, weight: .regular),
+                color: .secondaryLabelColor
+            ))
+        }
+
+        return viewItem(view)
+    }
+
+    private func topLeaderboardEntries(
+        by score: (LeaderboardEntry) -> Int
+    ) -> [LeaderboardEntry] {
+        Array(leaderboardEntries.sorted { lhs, rhs in
+            let lhsScore = score(lhs)
+            let rhsScore = score(rhs)
+
+            if lhsScore == rhsScore {
+                return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+            }
+
+            return lhsScore > rhsScore
+        }.prefix(5))
+    }
+
+    private func rankText(for index: Int) -> String {
+        switch index {
+        case 0:
+            return "🥇"
+        case 1:
+            return "🥈"
+        case 2:
+            return "🥉"
+        default:
+            return "\(index + 1)."
         }
     }
 
@@ -354,6 +460,26 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         statusMenuItem.title = error.localizedDescription
     }
 
+    private func publishLeaderboard(_ snapshot: CodexUsageSnapshot) {
+        guard let leaderboardClient else {
+            return
+        }
+
+        leaderboardClient.publish(snapshot: snapshot) { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let entries):
+                    self?.leaderboardEntries = entries
+                    self?.leaderboardError = nil
+                case .failure(let error):
+                    self?.leaderboardError = error.localizedDescription
+                }
+
+                self?.rebuildMenu()
+            }
+        }
+    }
+
     private func setStatusText(_ text: String) {
         guard let button = statusItem.button else {
             return
@@ -410,7 +536,8 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
     }
 
     private func formattedCurrency(_ value: Double) -> String {
-        currencyFormatter.string(from: NSNumber(value: value)) ?? String(format: "$%.2f", value)
+        let amountText = currencyFormatter.string(from: NSNumber(value: value)) ?? String(format: "%.2f", value)
+        return "$\(amountText)"
     }
 }
 
