@@ -144,6 +144,9 @@ final class CodexUsageStore {
             )
         }
 
+        primaryLimit = resetExpiredLimit(primaryLimit, fallbackWindowMinutes: 300, now: now)
+        weeklyLimit = resetExpiredLimit(weeklyLimit, fallbackWindowMinutes: 10_080, now: now)
+
         return CodexUsageSnapshot(
             capturedAt: now,
             latestEventDate: latestEventDate,
@@ -290,6 +293,34 @@ final class CodexUsageStore {
             usedPercent: usedPercent,
             windowMinutes: windowMinutes,
             resetsAt: resetsAt
+        )
+    }
+
+    private func resetExpiredLimit(
+        _ limit: RateLimitSnapshot?,
+        fallbackWindowMinutes: Int,
+        now: Date
+    ) -> RateLimitSnapshot? {
+        guard let limit else {
+            return nil
+        }
+
+        guard let resetsAt = limit.resetsAt, resetsAt <= now else {
+            return limit
+        }
+
+        let windowMinutes = limit.windowMinutes > 0 ? limit.windowMinutes : fallbackWindowMinutes
+        let windowDuration = TimeInterval(windowMinutes * 60)
+        var nextReset = Date(timeInterval: windowDuration, since: resetsAt)
+
+        while nextReset <= now {
+            nextReset = Date(timeInterval: windowDuration, since: nextReset)
+        }
+
+        return RateLimitSnapshot(
+            usedPercent: 0,
+            windowMinutes: windowMinutes,
+            resetsAt: nextReset
         )
     }
 

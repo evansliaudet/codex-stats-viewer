@@ -100,7 +100,7 @@ https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/
 
 The Sparkle public key is already in `Info.plist`. The private key is stored in this Mac's Keychain under the `codex-usage-bar` Sparkle account.
 
-Release flow:
+Manual release flow:
 
 ```sh
 scripts/release_zip.sh
@@ -113,3 +113,11 @@ cp "dist/Codex Usage Bar.zip" "releases/CodexUsageBar-0.1.0.zip"
 ```
 
 Commit and push `releases/appcast.xml` and the versioned zip in `releases/`.
+
+Fully automated release flow:
+
+```sh
+scripts/publish_release.sh 0.1.1 "Fix expired usage windows"
+```
+
+This bumps `Info.plist`, builds the app zip, updates Sparkle's appcast, commits, tags, pushes, and creates a GitHub Release with the zip assets.
