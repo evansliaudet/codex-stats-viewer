@@ -78,10 +78,7 @@ cp "dist/Codex Usage Bar.zip" "${zip_path}"
   --download-url-prefix "${appcast_url_prefix}" \
   releases
 
-git add \
-  Resources/Info.plist \
-  releases/appcast.xml \
-  "${zip_path}"
+git add -A
 
 if ! git diff --cached --quiet; then
   git commit -m "Release ${version}"

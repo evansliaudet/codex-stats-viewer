@@ -49,7 +49,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         formatter.timeStyle = .short
         return formatter
     }()
-    private let spinnerFrames = ["|", "/", "-", "\\"]
+    private let spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
     private var timer: Timer?
     private var spinnerTimer: Timer?
