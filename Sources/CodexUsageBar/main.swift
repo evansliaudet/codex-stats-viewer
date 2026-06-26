@@ -1,11 +1,22 @@
 import AppKit
 import Foundation
+import Sparkle
 
 final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let statusMenu = NSMenu()
     private let statusMenuItem = NSMenuItem(title: "Loading Codex usage...", action: nil, keyEquivalent: "")
     private let refreshMenuItem = NSMenuItem(title: "Refresh", action: #selector(refreshNow), keyEquivalent: "r")
+    private let checkForUpdatesMenuItem = NSMenuItem(
+        title: "Check for Updates...",
+        action: #selector(checkForUpdates),
+        keyEquivalent: "u"
+    )
+    private let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
 
     private let numberFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
@@ -38,12 +49,15 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         formatter.timeStyle = .short
         return formatter
     }()
+    private let spinnerFrames = ["|", "/", "-", "\\"]
 
     private var timer: Timer?
+    private var spinnerTimer: Timer?
     private var config: AppConfig?
     private var store: CodexUsageStore?
     private var snapshot: CodexUsageSnapshot?
     private var isRefreshing = false
+    private var spinnerIndex = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureStatusItem()
@@ -64,10 +78,15 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         timer?.invalidate()
+        spinnerTimer?.invalidate()
     }
 
     @objc private func refreshNow() {
         refresh()
+    }
+
+    @objc private func checkForUpdates() {
+        updaterController.checkForUpdates(nil)
     }
 
     private func configureStatusItem() {
@@ -83,6 +102,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         statusItem.menu = statusMenu
         statusMenuItem.isEnabled = false
         refreshMenuItem.target = self
+        checkForUpdatesMenuItem.target = self
     }
 
     private func codexIcon() -> NSImage? {
@@ -107,7 +127,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
 
         isRefreshing = true
         refreshMenuItem.isEnabled = false
-        setStatusText("Codex ...")
+        startRefreshIndicator()
 
         DispatchQueue.global(qos: .utility).async { [store] in
             let result: Result<CodexUsageSnapshot, Error>
@@ -128,6 +148,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
     private func finishRefresh(_ result: Result<CodexUsageSnapshot, Error>) {
         isRefreshing = false
         refreshMenuItem.isEnabled = true
+        stopRefreshIndicator()
 
         switch result {
         case .success(let snapshot):
@@ -138,6 +159,27 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         }
 
         rebuildMenu()
+    }
+
+    private func startRefreshIndicator() {
+        spinnerTimer?.invalidate()
+        spinnerIndex = 0
+        updateRefreshIndicator()
+        spinnerTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+            self?.updateRefreshIndicator()
+        }
+    }
+
+    private func stopRefreshIndicator() {
+        spinnerTimer?.invalidate()
+        spinnerTimer = nil
+    }
+
+    private func updateRefreshIndicator() {
+        let percentageText = percentText(snapshot?.primaryLimit?.usedPercent)
+        let spinnerText = spinnerFrames[spinnerIndex % spinnerFrames.count]
+        spinnerIndex += 1
+        setStatusText("\(percentageText) \(spinnerText)")
     }
 
     private func rebuildMenu() {
@@ -155,6 +197,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
 
         statusMenu.addItem(.separator())
         statusMenu.addItem(refreshMenuItem)
+        statusMenu.addItem(checkForUpdatesMenuItem)
         statusMenu.addItem(.separator())
         statusMenu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
     }

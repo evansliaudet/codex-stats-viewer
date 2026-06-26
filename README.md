@@ -75,3 +75,41 @@ swift run
 scripts/package_app.sh
 open "dist/Codex Usage Bar.app"
 ```
+
+## Build a Release Zip
+
+```sh
+scripts/release_zip.sh
+```
+
+This creates:
+
+```text
+dist/Codex Usage Bar.zip
+```
+
+## Auto Updates
+
+The app uses Sparkle for updates and includes a "Check for Updates..." menu item.
+
+The appcast is hosted directly in this repo:
+
+```text
+https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/appcast.xml
+```
+
+The Sparkle public key is already in `Info.plist`. The private key is stored in this Mac's Keychain under the `codex-usage-bar` Sparkle account.
+
+Release flow:
+
+```sh
+scripts/release_zip.sh
+mkdir -p releases
+cp "dist/Codex Usage Bar.zip" "releases/CodexUsageBar-0.1.0.zip"
+.build/artifacts/sparkle/Sparkle/bin/generate_appcast \
+  --account codex-usage-bar \
+  --download-url-prefix "https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/" \
+  releases
+```
+
+Commit and push `releases/appcast.xml` and the versioned zip in `releases/`.

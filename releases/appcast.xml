@@ -1,0 +1,14 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Codex Usage Bar</title>
+        <item>
+            <title>0.1.0</title>
+            <pubDate>Fri, 26 Jun 2026 14:25:36 +0200</pubDate>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/CodexUsageBar-0.1.0.zip" length="1168194" type="application/octet-stream" sparkle:edSignature="eor9ok/a/ErkxFMrjBlxJ31fUqEllcYRA4tSKHT9ihZWYY1OZRT9Ia3o/ko8Y5ZrODV+iSYPgTNOLhPV3fDPAA=="/>
+        </item>
+    </channel>
+</rss>

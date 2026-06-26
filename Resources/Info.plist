@@ -24,5 +24,11 @@
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>SUEnableDownloaderSecurity</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>G0ck11IYQ9s9UGdwGglA04UWhX7x++/hOFPkrXcRNsY=</string>
 </dict>
 </plist>
