@@ -9,6 +9,9 @@ struct CodexUsageSnapshot {
     let today: CostSummary
     let last7Days: CostSummary
     let last30Days: CostSummary
+    let todayBuckets: [UsageBucket]
+    let last7DaysBuckets: [UsageBucket]
+    let last30DaysBuckets: [UsageBucket]
 }
 
 struct RateLimitSnapshot {
@@ -33,6 +36,11 @@ struct CostSummary {
         totalTokens += usage.totalTokens
         estimatedCost += cost
     }
+}
+
+struct UsageBucket {
+    let startDate: Date
+    var summary: CostSummary
 }
 
 struct TokenUsage {
@@ -76,6 +84,20 @@ final class CodexUsageStore {
         var today = CostSummary()
         var last7Days = CostSummary()
         var last30Days = CostSummary()
+        var todayBuckets = makeBuckets(startingAt: todayStart, count: 24, component: .hour)
+        var last7DaysBuckets = makeBuckets(
+            startingAt: calendar.date(byAdding: .day, value: -6, to: todayStart) ?? todayStart,
+            count: 7,
+            component: .day
+        )
+        var last30DaysBuckets = makeBuckets(
+            startingAt: calendar.date(byAdding: .day, value: -29, to: todayStart) ?? todayStart,
+            count: 30,
+            component: .day
+        )
+        let todayBucketIndexes = bucketIndexes(for: todayBuckets)
+        let last7DaysBucketIndexes = bucketIndexes(for: last7DaysBuckets)
+        let last30DaysBucketIndexes = bucketIndexes(for: last30DaysBuckets)
         var latestEventDate: Date?
         var latestModel: String?
         var primaryLimit: RateLimitSnapshot?
@@ -122,14 +144,38 @@ final class CodexUsageStore {
 
                 if event.date >= last30DaysStart {
                     last30Days.add(usage, cost: cost)
+                    add(
+                        usage,
+                        cost: cost,
+                        date: event.date,
+                        component: .day,
+                        buckets: &last30DaysBuckets,
+                        indexes: last30DaysBucketIndexes
+                    )
                 }
 
                 if event.date >= last7DaysStart {
                     last7Days.add(usage, cost: cost)
+                    add(
+                        usage,
+                        cost: cost,
+                        date: event.date,
+                        component: .day,
+                        buckets: &last7DaysBuckets,
+                        indexes: last7DaysBucketIndexes
+                    )
                 }
 
                 if event.date >= todayStart {
                     today.add(usage, cost: cost)
+                    add(
+                        usage,
+                        cost: cost,
+                        date: event.date,
+                        component: .hour,
+                        buckets: &todayBuckets,
+                        indexes: todayBucketIndexes
+                    )
                 }
             }
         }
@@ -163,8 +209,47 @@ final class CodexUsageStore {
             weeklyLimit: weeklyLimit,
             today: today,
             last7Days: last7Days,
-            last30Days: last30Days
+            last30Days: last30Days,
+            todayBuckets: todayBuckets,
+            last7DaysBuckets: last7DaysBuckets,
+            last30DaysBuckets: last30DaysBuckets
         )
+    }
+
+    private func makeBuckets(
+        startingAt startDate: Date,
+        count: Int,
+        component: Calendar.Component
+    ) -> [UsageBucket] {
+        (0..<count).compactMap { offset in
+            guard let date = calendar.date(byAdding: component, value: offset, to: startDate) else {
+                return nil
+            }
+
+            return UsageBucket(startDate: date, summary: CostSummary())
+        }
+    }
+
+    private func bucketIndexes(for buckets: [UsageBucket]) -> [Date: Int] {
+        Dictionary(uniqueKeysWithValues: buckets.enumerated().map { index, bucket in
+            (bucket.startDate, index)
+        })
+    }
+
+    private func add(
+        _ usage: TokenUsage,
+        cost: Double,
+        date: Date,
+        component: Calendar.Component,
+        buckets: inout [UsageBucket],
+        indexes: [Date: Int]
+    ) {
+        guard let bucketStart = calendar.dateInterval(of: component, for: date)?.start,
+              let bucketIndex = indexes[bucketStart] else {
+            return
+        }
+
+        buckets[bucketIndex].summary.add(usage, cost: cost)
     }
 
     private func recentSessionFiles(startingAt startDate: Date) throws -> [SessionFile] {

@@ -59,6 +59,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
     private var leaderboardEntries: [LeaderboardEntry] = []
     private var leaderboardError: String?
     private var snapshot: CodexUsageSnapshot?
+    private var selectedStatsRange: StatsRange = .today
     private var isRefreshing = false
     private var spinnerIndex = 0
 
@@ -216,6 +217,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
 
     private func addUsageDetails(_ snapshot: CodexUsageSnapshot) {
         statusMenu.addItem(summaryItem(for: snapshot))
+        statusMenu.addItem(statsViewerItem(for: snapshot))
         statusMenu.addItem(.separator())
 
         if let primaryLimit = snapshot.primaryLimit {
@@ -330,51 +332,39 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
     }
 
     private func summaryItem(for snapshot: CodexUsageSnapshot) -> NSMenuItem {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 150))
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 58))
 
         addSummaryMetric(
             title: "5h window",
             value: percentText(snapshot.primaryLimit?.usedPercent),
             x: 14,
-            y: 104,
+            y: 8,
             to: view
         )
         addSummaryMetric(
             title: "Weekly",
             value: percentText(snapshot.weeklyLimit?.usedPercent),
             x: 164,
-            y: 104,
-            to: view
-        )
-        addSummaryMetric(
-            title: "Today spent",
-            value: formattedCurrency(snapshot.today.estimatedCost),
-            detail: "\(formatted(snapshot.today.totalTokens)) tokens",
-            x: 14,
-            y: 56,
-            to: view
-        )
-        addSummaryMetric(
-            title: "30 days spent",
-            value: formattedCurrency(snapshot.last30Days.estimatedCost),
-            detail: "\(formatted(snapshot.last30Days.totalTokens)) tokens",
-            x: 164,
-            y: 56,
-            to: view
-        )
-        addSummaryMetric(
-            title: "Today calls",
-            value: formatted(snapshot.today.calls),
-            x: 14,
             y: 8,
             to: view
         )
-        addSummaryMetric(
-            title: "30 days calls",
-            value: formatted(snapshot.last30Days.calls),
-            x: 164,
-            y: 8,
-            to: view
+
+        return viewItem(view)
+    }
+
+    private func statsViewerItem(for snapshot: CodexUsageSnapshot) -> NSMenuItem {
+        let view = StatsViewerView(
+            snapshot: snapshot,
+            selectedRange: selectedStatsRange,
+            formatTokens: { [weak self] value in
+                self?.formatted(value) ?? "\(value)"
+            },
+            formatCurrency: { [weak self] value in
+                self?.formattedCurrency(value) ?? String(format: "$%.2f", value)
+            },
+            onRangeChanged: { [weak self] range in
+                self?.selectedStatsRange = range
+            }
         )
 
         return viewItem(view)
@@ -538,6 +528,316 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
     private func formattedCurrency(_ value: Double) -> String {
         let amountText = currencyFormatter.string(from: NSNumber(value: value)) ?? String(format: "%.2f", value)
         return "$\(amountText)"
+    }
+}
+
+private enum StatsRange: Int {
+    case today
+    case last7Days
+    case last30Days
+
+    var segmentIndex: Int {
+        rawValue
+    }
+}
+
+private final class StatsViewerView: NSView {
+    private let snapshot: CodexUsageSnapshot
+    private let formatTokens: (Int) -> String
+    private let formatCurrency: (Double) -> String
+    private let onRangeChanged: (StatsRange) -> Void
+    private let spentValueLabel: NSTextField
+    private let tokensValueLabel: NSTextField
+    private let spentSparklineView: SparklineView
+    private let tokensSparklineView: SparklineView
+
+    init(
+        snapshot: CodexUsageSnapshot,
+        selectedRange: StatsRange,
+        formatTokens: @escaping (Int) -> String,
+        formatCurrency: @escaping (Double) -> String,
+        onRangeChanged: @escaping (StatsRange) -> Void
+    ) {
+        self.snapshot = snapshot
+        self.formatTokens = formatTokens
+        self.formatCurrency = formatCurrency
+        self.onRangeChanged = onRangeChanged
+        spentValueLabel = StatsViewerView.makeLabel(
+            "",
+            frame: NSRect(x: 14, y: 76, width: 110, height: 20),
+            font: .monospacedDigitSystemFont(ofSize: 16, weight: .semibold),
+            color: .labelColor
+        )
+        tokensValueLabel = StatsViewerView.makeLabel(
+            "",
+            frame: NSRect(x: 14, y: 22, width: 110, height: 20),
+            font: .monospacedDigitSystemFont(ofSize: 16, weight: .semibold),
+            color: .labelColor
+        )
+        spentSparklineView = SparklineView(
+            frame: NSRect(x: 132, y: 62, width: 170, height: 44),
+            value: { $0.spent },
+            tooltipText: { point in
+                "\(point.dateText)\n\(formatCurrency(point.spent)) spent\n\(formatTokens(point.tokens)) tokens"
+            }
+        )
+        tokensSparklineView = SparklineView(
+            frame: NSRect(x: 132, y: 8, width: 170, height: 44),
+            value: { Double($0.tokens) },
+            tooltipText: { point in
+                "\(point.dateText)\n\(formatCurrency(point.spent)) spent\n\(formatTokens(point.tokens)) tokens"
+            }
+        )
+
+        super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 144))
+
+        addSubview(StatsViewerView.makeLabel(
+            "Stats",
+            frame: NSRect(x: 14, y: 116, width: 90, height: 18),
+            font: .systemFont(ofSize: 13, weight: .semibold),
+            color: .labelColor
+        ))
+
+        let segmentedControl = NSSegmentedControl(labels: ["Today", "7D", "30D"], trackingMode: .selectOne, target: self, action: #selector(rangeChanged(_:)))
+        segmentedControl.frame = NSRect(x: 154, y: 110, width: 148, height: 26)
+        segmentedControl.selectedSegment = selectedRange.segmentIndex
+        addSubview(segmentedControl)
+
+        addSubview(StatsViewerView.makeLabel(
+            "$ spent",
+            frame: NSRect(x: 14, y: 96, width: 110, height: 14),
+            font: .systemFont(ofSize: 10, weight: .medium),
+            color: .secondaryLabelColor
+        ))
+        addSubview(spentValueLabel)
+        addSubview(spentSparklineView)
+
+        addSubview(StatsViewerView.makeLabel(
+            "Tokens spent",
+            frame: NSRect(x: 14, y: 42, width: 110, height: 14),
+            font: .systemFont(ofSize: 10, weight: .medium),
+            color: .secondaryLabelColor
+        ))
+        addSubview(tokensValueLabel)
+        addSubview(tokensSparklineView)
+
+        update(range: selectedRange)
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    @objc private func rangeChanged(_ sender: NSSegmentedControl) {
+        guard let range = StatsRange(rawValue: sender.selectedSegment) else {
+            return
+        }
+
+        onRangeChanged(range)
+        update(range: range)
+    }
+
+    private func update(range: StatsRange) {
+        let buckets = buckets(for: range)
+        let summary = summary(for: buckets)
+
+        spentValueLabel.stringValue = formatCurrency(summary.estimatedCost)
+        tokensValueLabel.stringValue = "\(formatTokens(summary.totalTokens)) tok"
+        let points = buckets.map { bucket in
+            SparklinePoint(
+                dateText: dateText(for: bucket, range: range),
+                spent: bucket.summary.estimatedCost,
+                tokens: bucket.summary.totalTokens
+            )
+        }
+        spentSparklineView.points = points
+        tokensSparklineView.points = points
+    }
+
+    private func summary(for buckets: [UsageBucket]) -> CostSummary {
+        buckets.reduce(into: CostSummary()) { total, bucket in
+            total.calls += bucket.summary.calls
+            total.inputTokens += bucket.summary.inputTokens
+            total.cachedInputTokens += bucket.summary.cachedInputTokens
+            total.outputTokens += bucket.summary.outputTokens
+            total.totalTokens += bucket.summary.totalTokens
+            total.estimatedCost += bucket.summary.estimatedCost
+        }
+    }
+
+    private func buckets(for range: StatsRange) -> [UsageBucket] {
+        switch range {
+        case .today:
+            return snapshot.todayBuckets
+        case .last7Days:
+            return snapshot.last7DaysBuckets
+        case .last30Days:
+            return snapshot.last30DaysBuckets
+        }
+    }
+
+    private func dateText(for bucket: UsageBucket, range: StatsRange) -> String {
+        switch range {
+        case .today:
+            return StatsViewerView.hourFormatter.string(from: bucket.startDate)
+        case .last7Days, .last30Days:
+            return StatsViewerView.dayFormatter.string(from: bucket.startDate)
+        }
+    }
+
+    private static func makeLabel(
+        _ text: String,
+        frame: NSRect,
+        font: NSFont,
+        color: NSColor
+    ) -> NSTextField {
+        let textField = NSTextField(labelWithString: text)
+        textField.frame = frame
+        textField.font = font
+        textField.textColor = color
+        textField.lineBreakMode = .byTruncatingTail
+        return textField
+    }
+
+    private static let dayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("MMM d")
+        return formatter
+    }()
+
+    private static let hourFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("MMM d, h a")
+        return formatter
+    }()
+}
+
+private struct SparklinePoint {
+    let dateText: String
+    let spent: Double
+    let tokens: Int
+}
+
+private final class SparklineView: NSView, NSViewToolTipOwner {
+    var points: [SparklinePoint] = [] {
+        didSet {
+            resetToolTips()
+            needsDisplay = true
+        }
+    }
+    private let value: (SparklinePoint) -> Double
+    private let tooltipText: (SparklinePoint) -> String
+    private var tooltipPoints: [NSView.ToolTipTag: SparklinePoint] = [:]
+
+    init(
+        frame frameRect: NSRect,
+        value: @escaping (SparklinePoint) -> Double,
+        tooltipText: @escaping (SparklinePoint) -> String
+    ) {
+        self.value = value
+        self.tooltipText = tooltipText
+        super.init(frame: frameRect)
+        resetToolTips()
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    override var isFlipped: Bool {
+        true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        resetToolTips()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let values = points.map(value)
+        guard values.count > 1, let maxValue = values.max(), maxValue > 0 else {
+            return
+        }
+
+        let minValue = values.min() ?? 0
+        let valueRange = maxValue - minValue
+        let drawingRect = bounds.insetBy(dx: 3, dy: 4)
+        let stepX = drawingRect.width / CGFloat(values.count - 1)
+        let path = NSBezierPath()
+
+        for (index, value) in values.enumerated() {
+            let normalizedValue = valueRange > 0 ? (value - minValue) / valueRange : 0.5
+            let x = drawingRect.minX + CGFloat(index) * stepX
+            let y = drawingRect.maxY - CGFloat(normalizedValue) * drawingRect.height
+            let point = NSPoint(x: x, y: y)
+
+            if index == 0 {
+                path.move(to: point)
+            } else {
+                path.line(to: point)
+            }
+        }
+
+        let fillPath = path.copy() as? NSBezierPath
+        fillPath?.line(to: NSPoint(x: drawingRect.maxX, y: drawingRect.maxY))
+        fillPath?.line(to: NSPoint(x: drawingRect.minX, y: drawingRect.maxY))
+        fillPath?.close()
+        NSColor.systemBlue.withAlphaComponent(0.12).setFill()
+        fillPath?.fill()
+
+        path.lineWidth = 2.8
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        NSColor.systemBlue.setStroke()
+        path.stroke()
+    }
+
+    @objc(view:stringForToolTip:point:userData:)
+    func view(
+        _ view: NSView,
+        stringForToolTip tag: NSView.ToolTipTag,
+        point: NSPoint,
+        userData data: UnsafeMutableRawPointer?
+    ) -> String {
+        guard let point = tooltipPoints[tag] else {
+            return ""
+        }
+
+        return tooltipText(point)
+    }
+
+    private func resetToolTips() {
+        removeAllToolTips()
+        tooltipPoints.removeAll()
+
+        guard !points.isEmpty else {
+            return
+        }
+
+        if points.count == 1 {
+            let tag = addToolTip(bounds, owner: self, userData: nil)
+            tooltipPoints[tag] = points[0]
+            return
+        }
+
+        let drawingRect = bounds.insetBy(dx: 3, dy: 4)
+        let stepX = drawingRect.width / CGFloat(points.count - 1)
+
+        for (index, point) in points.enumerated() {
+            let centerX = drawingRect.minX + CGFloat(index) * stepX
+            let leftX = index == 0 ? bounds.minX : centerX - stepX / 2
+            let rightX = index == points.count - 1 ? bounds.maxX : centerX + stepX / 2
+            let rect = NSRect(
+                x: leftX,
+                y: bounds.minY,
+                width: max(rightX - leftX, 1),
+                height: bounds.height
+            )
+            let tag = addToolTip(rect, owner: self, userData: nil)
+            tooltipPoints[tag] = point
+        }
     }
 }
 
