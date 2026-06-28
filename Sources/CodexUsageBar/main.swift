@@ -542,6 +542,9 @@ private enum StatsRange: Int {
 }
 
 private final class StatsViewerView: NSView {
+    private static let viewWidth: CGFloat = 520
+    private static let statsYOffset: CGFloat = 136
+
     private let snapshot: CodexUsageSnapshot
     private let formatTokens: (Int) -> String
     private let formatCurrency: (Double) -> String
@@ -550,6 +553,8 @@ private final class StatsViewerView: NSView {
     private let tokensValueLabel: NSTextField
     private let spentSparklineView: SparklineView
     private let tokensSparklineView: SparklineView
+    private let tokenActivityGridView: TokenActivityGridView
+    private let hoverTooltipView: HoverTooltipView
 
     init(
         snapshot: CodexUsageSnapshot,
@@ -564,48 +569,57 @@ private final class StatsViewerView: NSView {
         self.onRangeChanged = onRangeChanged
         spentValueLabel = StatsViewerView.makeLabel(
             "",
-            frame: NSRect(x: 14, y: 76, width: 110, height: 20),
+            frame: NSRect(x: 14, y: StatsViewerView.statsYOffset + 76, width: 110, height: 20),
             font: .monospacedDigitSystemFont(ofSize: 16, weight: .semibold),
             color: .labelColor
         )
         tokensValueLabel = StatsViewerView.makeLabel(
             "",
-            frame: NSRect(x: 14, y: 22, width: 110, height: 20),
+            frame: NSRect(x: 14, y: StatsViewerView.statsYOffset + 22, width: 110, height: 20),
             font: .monospacedDigitSystemFont(ofSize: 16, weight: .semibold),
             color: .labelColor
         )
         spentSparklineView = SparklineView(
-            frame: NSRect(x: 132, y: 62, width: 170, height: 44),
+            frame: NSRect(x: 132, y: StatsViewerView.statsYOffset + 62, width: 374, height: 44),
             value: { $0.spent },
             tooltipText: { point in
                 "\(point.dateText)\n\(formatCurrency(point.spent)) spent\n\(formatTokens(point.tokens)) tokens"
             }
         )
         tokensSparklineView = SparklineView(
-            frame: NSRect(x: 132, y: 8, width: 170, height: 44),
+            frame: NSRect(x: 132, y: StatsViewerView.statsYOffset + 8, width: 374, height: 44),
             value: { Double($0.tokens) },
             tooltipText: { point in
                 "\(point.dateText)\n\(formatCurrency(point.spent)) spent\n\(formatTokens(point.tokens)) tokens"
             }
         )
+        tokenActivityGridView = TokenActivityGridView(
+            frame: NSRect(x: 14, y: 12, width: 492, height: 86),
+            buckets: snapshot.last12MonthsDailyBuckets,
+            formatTokens: formatTokens
+        )
+        hoverTooltipView = HoverTooltipView(frame: .zero)
 
-        super.init(frame: NSRect(x: 0, y: 0, width: 320, height: 144))
+        super.init(frame: NSRect(x: 0, y: 0, width: StatsViewerView.viewWidth, height: 286))
+        tokenActivityGridView.onHoverChanged = { [weak self] hover in
+            self?.updateActivityHover(hover)
+        }
 
         addSubview(StatsViewerView.makeLabel(
             "Stats",
-            frame: NSRect(x: 14, y: 116, width: 90, height: 18),
+            frame: NSRect(x: 14, y: StatsViewerView.statsYOffset + 116, width: 90, height: 18),
             font: .systemFont(ofSize: 13, weight: .semibold),
             color: .labelColor
         ))
 
         let segmentedControl = NSSegmentedControl(labels: ["Today", "7D", "30D"], trackingMode: .selectOne, target: self, action: #selector(rangeChanged(_:)))
-        segmentedControl.frame = NSRect(x: 154, y: 110, width: 148, height: 26)
+        segmentedControl.frame = NSRect(x: 358, y: StatsViewerView.statsYOffset + 110, width: 148, height: 26)
         segmentedControl.selectedSegment = selectedRange.segmentIndex
         addSubview(segmentedControl)
 
         addSubview(StatsViewerView.makeLabel(
             "$ spent",
-            frame: NSRect(x: 14, y: 96, width: 110, height: 14),
+            frame: NSRect(x: 14, y: StatsViewerView.statsYOffset + 96, width: 110, height: 14),
             font: .systemFont(ofSize: 10, weight: .medium),
             color: .secondaryLabelColor
         ))
@@ -614,12 +628,22 @@ private final class StatsViewerView: NSView {
 
         addSubview(StatsViewerView.makeLabel(
             "Tokens spent",
-            frame: NSRect(x: 14, y: 42, width: 110, height: 14),
+            frame: NSRect(x: 14, y: StatsViewerView.statsYOffset + 42, width: 110, height: 14),
             font: .systemFont(ofSize: 10, weight: .medium),
             color: .secondaryLabelColor
         ))
         addSubview(tokensValueLabel)
         addSubview(tokensSparklineView)
+
+        addSubview(StatsViewerView.makeLabel(
+            "Token activity",
+            frame: NSRect(x: 14, y: 106, width: 140, height: 18),
+            font: .systemFont(ofSize: 13, weight: .semibold),
+            color: .labelColor
+        ))
+
+        addSubview(tokenActivityGridView)
+        addSubview(hoverTooltipView)
 
         update(range: selectedRange)
     }
@@ -635,6 +659,21 @@ private final class StatsViewerView: NSView {
 
         onRangeChanged(range)
         update(range: range)
+    }
+
+    private func updateActivityHover(_ hover: TokenActivityHover?) {
+        guard let hover else {
+            hoverTooltipView.isHidden = true
+            return
+        }
+
+        hoverTooltipView.text = hover.text
+        let size = hoverTooltipView.fittingSize(maxWidth: bounds.width - 16)
+        let cellRect = convert(hover.cellRect, from: tokenActivityGridView)
+        let x = min(max(cellRect.midX - size.width / 2, 8), bounds.width - size.width - 8)
+        let y = min(max(cellRect.maxY + 7, 8), bounds.height - size.height - 8)
+        hoverTooltipView.frame = NSRect(x: x, y: y, width: size.width, height: size.height)
+        hoverTooltipView.isHidden = false
     }
 
     private func update(range: StatsRange) {
@@ -710,6 +749,301 @@ private final class StatsViewerView: NSView {
         formatter.setLocalizedDateFormatFromTemplate("MMM d, h a")
         return formatter
     }()
+}
+
+private struct TokenActivityCell {
+    let date: Date
+    let rect: NSRect
+    let tokens: Int
+}
+
+private struct TokenActivityGridLayout {
+    let firstWeekStart: Date
+    let lastWeekEnd: Date
+    let cellSize: CGFloat
+    let gap: CGFloat
+    let originX: CGFloat
+    let originY: CGFloat
+    let gridHeight: CGFloat
+}
+
+private struct TokenActivityHover {
+    let text: String
+    let cellRect: NSRect
+}
+
+private final class TokenActivityGridView: NSView {
+    var onHoverChanged: (TokenActivityHover?) -> Void = { _ in }
+    private let buckets: [UsageBucket]
+    private let formatTokens: (Int) -> String
+    private let calendar: Calendar
+    private var trackingArea: NSTrackingArea?
+    private var hoveredDate: Date?
+
+    init(
+        frame frameRect: NSRect,
+        buckets: [UsageBucket],
+        formatTokens: @escaping (Int) -> String,
+        calendar: Calendar = .current
+    ) {
+        self.buckets = buckets
+        self.formatTokens = formatTokens
+        self.calendar = calendar
+        super.init(frame: frameRect)
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+
+        let newTrackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(newTrackingArea)
+        trackingArea = newTrackingArea
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.acceptsMouseMovedEvents = true
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updateHover(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoveredDate = nil
+        onHoverChanged(nil)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        guard let layout = gridLayout() else {
+            return
+        }
+
+        let cells = activityCells(layout: layout)
+        let maxValue = cells.map(\.tokens).max() ?? 0
+
+        for cell in cells {
+            fillColor(for: cell, maxValue: maxValue).setFill()
+            NSBezierPath(
+                roundedRect: cell.rect,
+                xRadius: min(2, layout.cellSize / 2),
+                yRadius: min(2, layout.cellSize / 2)
+            ).fill()
+        }
+
+        drawMonthLabels(layout: layout)
+    }
+
+    private func activityCells(layout: TokenActivityGridLayout) -> [TokenActivityCell] {
+        let dailyValues = dailyValuesByDate()
+        var cells: [TokenActivityCell] = []
+        var date = layout.firstWeekStart
+
+        while date <= layout.lastWeekEnd {
+            let dayStart = calendar.startOfDay(for: date)
+            let dayOffset = calendar.dateComponents([.day], from: layout.firstWeekStart, to: dayStart).day ?? 0
+            let column = max(dayOffset / 7, 0)
+            let row = weekdayIndex(for: dayStart)
+            let x = layout.originX + CGFloat(column) * (layout.cellSize + layout.gap)
+            let y = layout.originY + layout.gridHeight - layout.cellSize - CGFloat(row) * (layout.cellSize + layout.gap)
+
+            cells.append(TokenActivityCell(
+                date: dayStart,
+                rect: NSRect(x: x, y: y, width: layout.cellSize, height: layout.cellSize),
+                tokens: dailyValues[dayStart] ?? 0
+            ))
+
+            guard let nextDate = calendar.date(byAdding: .day, value: 1, to: date) else {
+                break
+            }
+            date = nextDate
+        }
+
+        return cells
+    }
+
+    private func gridLayout() -> TokenActivityGridLayout? {
+        guard let firstBucket = buckets.first,
+              let lastBucket = buckets.last,
+              let firstWeekStart = calendar.dateInterval(of: .weekOfYear, for: firstBucket.startDate)?.start,
+              let lastWeekStart = calendar.dateInterval(of: .weekOfYear, for: lastBucket.startDate)?.start else {
+            return nil
+        }
+
+        let daySpan = calendar.dateComponents([.day], from: firstWeekStart, to: lastWeekStart).day ?? 0
+        let columns = max(daySpan / 7 + 1, 1)
+        let gap: CGFloat = 2
+        let labelHeight: CGFloat = 18
+        let availableWidth = bounds.width
+        let availableHeight = max(bounds.height - labelHeight, 1)
+        let cellWidth = (availableWidth - CGFloat(columns - 1) * gap) / CGFloat(columns)
+        let cellHeight = (availableHeight - 6 * gap) / 7
+        let cellSize = max(floor(min(cellWidth, cellHeight)), 1)
+        let gridWidth = CGFloat(columns) * cellSize + CGFloat(columns - 1) * gap
+        let gridHeight = 7 * cellSize + 6 * gap
+        let originX = bounds.minX + max((bounds.width - gridWidth) / 2, 0)
+        let originY = bounds.minY + labelHeight + max((availableHeight - gridHeight) / 2, 0)
+        let lastWeekEnd = calendar.date(byAdding: .day, value: 6, to: lastWeekStart) ?? lastBucket.startDate
+
+        return TokenActivityGridLayout(
+            firstWeekStart: firstWeekStart,
+            lastWeekEnd: lastWeekEnd,
+            cellSize: cellSize,
+            gap: gap,
+            originX: originX,
+            originY: originY,
+            gridHeight: gridHeight
+        )
+    }
+
+    private func dailyValuesByDate() -> [Date: Int] {
+        Dictionary(uniqueKeysWithValues: buckets.map { bucket in
+            (bucket.startDate, bucket.summary.totalTokens)
+        })
+    }
+
+    private func weekdayIndex(for date: Date) -> Int {
+        let weekday = calendar.component(.weekday, from: date)
+        return (weekday - calendar.firstWeekday + 7) % 7
+    }
+
+    private func fillColor(for cell: TokenActivityCell, maxValue: Int) -> NSColor {
+        guard cell.tokens > 0, maxValue > 0 else {
+            return NSColor.labelColor.withAlphaComponent(0.08)
+        }
+
+        let normalizedValue = CGFloat(cell.tokens) / CGFloat(maxValue)
+        let alpha = min(0.95, 0.28 + normalizedValue * 0.67)
+        return NSColor.systemBlue.withAlphaComponent(alpha)
+    }
+
+    private func updateHover(at point: NSPoint) {
+        guard let layout = gridLayout(),
+              let cell = activityCells(layout: layout).first(where: { $0.rect.contains(point) }) else {
+            hoveredDate = nil
+            onHoverChanged(nil)
+            return
+        }
+
+        guard hoveredDate != cell.date else {
+            return
+        }
+
+        hoveredDate = cell.date
+        onHoverChanged(TokenActivityHover(
+            text: "\(formatTokens(cell.tokens)) tokens on \(TokenActivityGridView.hoverDateFormatter.string(from: cell.date))",
+            cellRect: cell.rect
+        ))
+    }
+
+    private func drawMonthLabels(layout: TokenActivityGridLayout) {
+        guard let firstBucket = buckets.first,
+              let lastBucket = buckets.last,
+              var monthStart = calendar.dateInterval(of: .month, for: firstBucket.startDate)?.start else {
+            return
+        }
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+
+        while monthStart <= lastBucket.startDate {
+            let dayOffset = calendar.dateComponents([.day], from: layout.firstWeekStart, to: monthStart).day ?? 0
+            let column = max(dayOffset / 7, 0)
+            let x = layout.originX + CGFloat(column) * (layout.cellSize + layout.gap)
+            NSString(string: TokenActivityGridView.monthFormatter.string(from: monthStart)).draw(
+                in: NSRect(x: x, y: bounds.minY, width: 32, height: 14),
+                withAttributes: attributes
+            )
+
+            guard let nextMonthStart = calendar.date(byAdding: .month, value: 1, to: monthStart) else {
+                break
+            }
+            monthStart = nextMonthStart
+        }
+    }
+
+    private static let monthFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("MMM")
+        return formatter
+    }()
+
+    private static let hoverDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("MMM d")
+        return formatter
+    }()
+}
+
+private final class HoverTooltipView: NSView {
+    var text = "" {
+        didSet {
+            textField.stringValue = text
+            needsDisplay = true
+            needsLayout = true
+        }
+    }
+
+    private let textField: NSTextField = {
+        let textField = NSTextField(labelWithString: "")
+        textField.font = .systemFont(ofSize: 13, weight: .regular)
+        textField.textColor = .white
+        textField.alignment = .center
+        textField.lineBreakMode = .byTruncatingTail
+        return textField
+    }()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        isHidden = true
+        addSubview(textField)
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    func fittingSize(maxWidth: CGFloat) -> NSSize {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: textField.font ?? NSFont.systemFont(ofSize: 13),
+        ]
+        let textSize = NSString(string: text).size(withAttributes: attributes)
+        let width = min(max(textSize.width + 28, 72), maxWidth)
+        return NSSize(width: width, height: 34)
+    }
+
+    override func layout() {
+        super.layout()
+        textField.frame = bounds.insetBy(dx: 12, dy: 8)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 10, yRadius: 10)
+        NSColor.black.withAlphaComponent(0.86).setFill()
+        path.fill()
+        NSColor.white.withAlphaComponent(0.16).setStroke()
+        path.lineWidth = 1
+        path.stroke()
+    }
 }
 
 private struct SparklinePoint {

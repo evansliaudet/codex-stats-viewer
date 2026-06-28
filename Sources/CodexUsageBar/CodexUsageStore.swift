@@ -12,6 +12,7 @@ struct CodexUsageSnapshot {
     let todayBuckets: [UsageBucket]
     let last7DaysBuckets: [UsageBucket]
     let last30DaysBuckets: [UsageBucket]
+    let last12MonthsDailyBuckets: [UsageBucket]
 }
 
 struct RateLimitSnapshot {
@@ -79,11 +80,23 @@ final class CodexUsageStore {
             ?? now.addingTimeInterval(-7 * 24 * 60 * 60)
         let last30DaysStart = calendar.date(byAdding: .day, value: -30, to: todayStart)
             ?? now.addingTimeInterval(-30 * 24 * 60 * 60)
+        let currentMonthStart = calendar.dateInterval(of: .month, for: now)?.start ?? todayStart
+        let activityStart = calendar.date(byAdding: .month, value: -11, to: currentMonthStart)
+            ?? last30DaysStart
+        let activityDayCount = max(
+            (calendar.dateComponents([.day], from: activityStart, to: todayStart).day ?? 0) + 1,
+            1
+        )
 
-        let sessionFiles = try recentSessionFiles(startingAt: last30DaysStart)
+        let sessionFiles = try recentSessionFiles(startingAt: activityStart)
         var today = CostSummary()
         var last7Days = CostSummary()
         var last30Days = CostSummary()
+        var last12MonthsDailyBuckets = makeBuckets(
+            startingAt: activityStart,
+            count: activityDayCount,
+            component: .day
+        )
         var todayBuckets = makeBuckets(startingAt: todayStart, count: 24, component: .hour)
         var last7DaysBuckets = makeBuckets(
             startingAt: calendar.date(byAdding: .day, value: -6, to: todayStart) ?? todayStart,
@@ -98,6 +111,7 @@ final class CodexUsageStore {
         let todayBucketIndexes = bucketIndexes(for: todayBuckets)
         let last7DaysBucketIndexes = bucketIndexes(for: last7DaysBuckets)
         let last30DaysBucketIndexes = bucketIndexes(for: last30DaysBuckets)
+        let last12MonthsDailyBucketIndexes = bucketIndexes(for: last12MonthsDailyBuckets)
         var latestEventDate: Date?
         var latestModel: String?
         var primaryLimit: RateLimitSnapshot?
@@ -141,6 +155,17 @@ final class CodexUsageStore {
                 }
 
                 let cost = estimatedCost(for: usage, model: event.model)
+
+                if event.date >= activityStart {
+                    add(
+                        usage,
+                        cost: cost,
+                        date: event.date,
+                        component: .day,
+                        buckets: &last12MonthsDailyBuckets,
+                        indexes: last12MonthsDailyBucketIndexes
+                    )
+                }
 
                 if event.date >= last30DaysStart {
                     last30Days.add(usage, cost: cost)
@@ -212,7 +237,8 @@ final class CodexUsageStore {
             last30Days: last30Days,
             todayBuckets: todayBuckets,
             last7DaysBuckets: last7DaysBuckets,
-            last30DaysBuckets: last30DaysBuckets
+            last30DaysBuckets: last30DaysBuckets,
+            last12MonthsDailyBuckets: last12MonthsDailyBuckets
         )
     }
 
