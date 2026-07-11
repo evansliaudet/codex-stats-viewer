@@ -49,6 +49,11 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         formatter.timeStyle = .short
         return formatter
     }()
+    private let resetTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
     private let spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
     private var timer: Timer?
@@ -196,7 +201,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         statusMenu.addItem(.separator())
 
         if let snapshot {
-            addUsageDetails(snapshot)
+            addUsageOverview(snapshot)
         } else {
             let emptyItem = NSMenuItem(title: "No usage loaded", action: nil, keyEquivalent: "")
             emptyItem.isEnabled = false
@@ -204,8 +209,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         }
 
         if leaderboardClient != nil {
-            statusMenu.addItem(.separator())
-            addLeaderboardDetails()
+            addLeaderboardOverview()
         }
 
         statusMenu.addItem(.separator())
@@ -215,31 +219,46 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         statusMenu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
     }
 
-    private func addUsageDetails(_ snapshot: CodexUsageSnapshot) {
+    private func addUsageOverview(_ snapshot: CodexUsageSnapshot) {
         statusMenu.addItem(summaryItem(for: snapshot))
-        statusMenu.addItem(statsViewerItem(for: snapshot))
         statusMenu.addItem(.separator())
+        statusMenu.addItem(usageHistoryMenuItem(for: snapshot))
+        statusMenu.addItem(usageDetailsMenuItem(for: snapshot))
+    }
+
+    private func usageHistoryMenuItem(for snapshot: CodexUsageSnapshot) -> NSMenuItem {
+        let menu = NSMenu(title: "Usage History")
+        menu.addItem(statsViewerItem(for: snapshot))
+        return submenuItem(title: "Usage History", menu: menu)
+    }
+
+    private func usageDetailsMenuItem(for snapshot: CodexUsageSnapshot) -> NSMenuItem {
+        let menu = NSMenu(title: "Limits & Model")
 
         if let primaryLimit = snapshot.primaryLimit {
-            statusMenu.addItem(textItem("5h reset: \(resetText(for: primaryLimit))", color: .secondaryLabelColor))
+            menu.addItem(textItem("5h reset: \(resetText(for: primaryLimit))", color: .secondaryLabelColor))
         }
 
         if let weeklyLimit = snapshot.weeklyLimit {
-            statusMenu.addItem(textItem("Weekly reset: \(resetText(for: weeklyLimit))", color: .secondaryLabelColor))
+            menu.addItem(textItem("Weekly reset: \(resetText(for: weeklyLimit))", color: .secondaryLabelColor))
         }
 
         if let latestModel = snapshot.latestModel {
-            statusMenu.addItem(textItem("Latest model: \(latestModel)", color: .secondaryLabelColor))
+            menu.addItem(textItem("Latest model: \(latestModel)", color: .secondaryLabelColor))
         }
 
         if let latestEventDate = snapshot.latestEventDate {
-            statusMenu.addItem(textItem("Updated: \(relativeFormatter.localizedString(for: latestEventDate, relativeTo: Date()))", color: .secondaryLabelColor))
+            menu.addItem(textItem("Updated: \(relativeFormatter.localizedString(for: latestEventDate, relativeTo: Date()))", color: .secondaryLabelColor))
         }
+
+        return submenuItem(title: "Limits & Model", menu: menu)
     }
 
-    private func addLeaderboardDetails() {
+    private func addLeaderboardOverview() {
+        statusMenu.addItem(.separator())
+
         if let leaderboardError {
-            statusMenu.addItem(textItem("Leaderboard unavailable: \(leaderboardError)", color: .secondaryLabelColor))
+            statusMenu.addItem(textItem("Friends unavailable: \(leaderboardError)", color: .secondaryLabelColor))
             return
         }
 
@@ -248,26 +267,48 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
             return
         }
 
-        statusMenu.addItem(textItem("Friends today", color: .secondaryLabelColor))
+        statusMenu.addItem(textItem("Friends Today", color: .secondaryLabelColor))
         statusMenu.addItem(leaderboardItem(
             entries: topLeaderboardEntries { $0.todayTokens },
             tokenValue: { $0.todayTokens },
             costValue: { $0.todayEstimatedCost }
         ))
+        statusMenu.addItem(leaderboardHistoryMenuItem())
+    }
 
-        statusMenu.addItem(textItem("Friends last 7 days", color: .secondaryLabelColor))
-        statusMenu.addItem(leaderboardItem(
+    private func leaderboardHistoryMenuItem() -> NSMenuItem {
+        let menu = NSMenu(title: "More Friend Rankings")
+
+        menu.addItem(leaderboardRangeMenuItem(
+            title: "Last 7 Days",
             entries: topLeaderboardEntries { $0.last7DaysTokens },
             tokenValue: { $0.last7DaysTokens },
             costValue: { $0.last7DaysEstimatedCost }
         ))
 
-        statusMenu.addItem(textItem("Friends last 30 days", color: .secondaryLabelColor))
-        statusMenu.addItem(leaderboardItem(
+        menu.addItem(leaderboardRangeMenuItem(
+            title: "Last 30 Days",
             entries: topLeaderboardEntries { $0.last30DaysTokens },
             tokenValue: { $0.last30DaysTokens },
             costValue: { $0.last30DaysEstimatedCost }
         ))
+
+        return submenuItem(title: "More Friend Rankings", menu: menu)
+    }
+
+    private func leaderboardRangeMenuItem(
+        title: String,
+        entries: [LeaderboardEntry],
+        tokenValue: (LeaderboardEntry) -> Int,
+        costValue: (LeaderboardEntry) -> Double
+    ) -> NSMenuItem {
+        let menu = NSMenu(title: title)
+        menu.addItem(leaderboardItem(
+            entries: entries,
+            tokenValue: tokenValue,
+            costValue: costValue
+        ))
+        return submenuItem(title: title, menu: menu)
     }
 
     private func leaderboardItem(
@@ -332,22 +373,30 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
     }
 
     private func summaryItem(for snapshot: CodexUsageSnapshot) -> NSMenuItem {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 58))
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 78))
 
         addSummaryMetric(
-            title: "5h window",
+            title: "5-hour usage",
             value: percentText(snapshot.primaryLimit?.usedPercent),
+            detail: relativeResetText(for: snapshot.primaryLimit),
             x: 14,
-            y: 8,
+            y: 28,
             to: view
         )
         addSummaryMetric(
-            title: "Weekly",
+            title: "Weekly usage",
             value: percentText(snapshot.weeklyLimit?.usedPercent),
             x: 164,
-            y: 8,
+            y: 28,
             to: view
         )
+
+        view.addSubview(label(
+            "Today  \(formattedCurrency(snapshot.today.estimatedCost))  ·  \(formatted(snapshot.today.totalTokens)) tokens",
+            frame: NSRect(x: 14, y: 7, width: 292, height: 16),
+            font: .systemFont(ofSize: 12),
+            color: .secondaryLabelColor
+        ))
 
         return viewItem(view)
     }
@@ -422,6 +471,12 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         return item
     }
 
+    private func submenuItem(title: String, menu: NSMenu) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.submenu = menu
+        return item
+    }
+
     private func label(
         _ text: String,
         frame: NSRect,
@@ -441,7 +496,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         let weeklyText = percentText(snapshot.weeklyLimit?.usedPercent)
         setStatusText(primaryText)
         statusItem.button?.toolTip = "Codex usage: \(primaryText) in 5h window, \(weeklyText) weekly"
-        statusMenuItem.title = "Codex: 5h \(primaryText) | Weekly \(weeklyText)"
+        statusMenuItem.title = "Codex usage"
     }
 
     private func showError(_ error: Error) {
@@ -498,6 +553,15 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         }
 
         return resetDateFormatter.string(from: resetsAt)
+    }
+
+    private func relativeResetText(for limit: RateLimitSnapshot?) -> String? {
+        guard let resetsAt = limit?.resetsAt else {
+            return nil
+        }
+
+        let relativeText = relativeFormatter.localizedString(for: resetsAt, relativeTo: Date())
+        return "Resets \(relativeText) · \(resetTimeFormatter.string(from: resetsAt))"
     }
 
     private func formatted(_ value: Int) -> String {
@@ -606,8 +670,8 @@ private final class StatsViewerView: NSView {
         }
 
         addSubview(StatsViewerView.makeLabel(
-            "Stats",
-            frame: NSRect(x: 14, y: StatsViewerView.statsYOffset + 116, width: 90, height: 18),
+            "Usage History",
+            frame: NSRect(x: 14, y: StatsViewerView.statsYOffset + 116, width: 140, height: 18),
             font: .systemFont(ofSize: 13, weight: .semibold),
             color: .labelColor
         ))
@@ -618,7 +682,7 @@ private final class StatsViewerView: NSView {
         addSubview(segmentedControl)
 
         addSubview(StatsViewerView.makeLabel(
-            "$ spent",
+            "Estimated cost",
             frame: NSRect(x: 14, y: StatsViewerView.statsYOffset + 96, width: 110, height: 14),
             font: .systemFont(ofSize: 10, weight: .medium),
             color: .secondaryLabelColor
@@ -627,7 +691,7 @@ private final class StatsViewerView: NSView {
         addSubview(spentSparklineView)
 
         addSubview(StatsViewerView.makeLabel(
-            "Tokens spent",
+            "Tokens used",
             frame: NSRect(x: 14, y: StatsViewerView.statsYOffset + 42, width: 110, height: 14),
             font: .systemFont(ofSize: 10, weight: .medium),
             color: .secondaryLabelColor
@@ -636,7 +700,7 @@ private final class StatsViewerView: NSView {
         addSubview(tokensSparklineView)
 
         addSubview(StatsViewerView.makeLabel(
-            "Token activity",
+            "12-month activity",
             frame: NSRect(x: 14, y: 106, width: 140, height: 18),
             font: .systemFont(ofSize: 13, weight: .semibold),
             color: .labelColor

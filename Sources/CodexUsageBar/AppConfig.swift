@@ -242,6 +242,10 @@ struct AppConfig {
 
     private static func defaultModelPrices() -> [String: ModelPrice] {
         [
+            "gpt-5.6": ModelPrice(inputPerMillion: 5.00, cachedInputPerMillion: 0.50, outputPerMillion: 30.00),
+            "gpt-5.6-sol": ModelPrice(inputPerMillion: 5.00, cachedInputPerMillion: 0.50, outputPerMillion: 30.00),
+            "gpt-5.6-terra": ModelPrice(inputPerMillion: 2.50, cachedInputPerMillion: 0.25, outputPerMillion: 15.00),
+            "gpt-5.6-luna": ModelPrice(inputPerMillion: 1.00, cachedInputPerMillion: 0.10, outputPerMillion: 6.00),
             "gpt-5.5": ModelPrice(inputPerMillion: 5.00, cachedInputPerMillion: 0.50, outputPerMillion: 30.00),
             "gpt-5.5-pro": ModelPrice(inputPerMillion: 30.00, cachedInputPerMillion: 0, outputPerMillion: 180.00),
             "gpt-5.4": ModelPrice(inputPerMillion: 2.50, cachedInputPerMillion: 0.25, outputPerMillion: 15.00),
