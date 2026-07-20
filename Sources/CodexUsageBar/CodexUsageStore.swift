@@ -56,11 +56,48 @@ private struct SessionFile {
     let model: String?
 }
 
+private struct SessionFileMetadata {
+    let size: UInt64
+    let modificationDate: Date?
+    let systemNumber: UInt64?
+    let fileNumber: UInt64?
+
+    func identifiesSameFile(as other: SessionFileMetadata) -> Bool {
+        guard let systemNumber, let fileNumber,
+              let otherSystemNumber = other.systemNumber,
+              let otherFileNumber = other.fileNumber else {
+            return true
+        }
+
+        return systemNumber == otherSystemNumber && fileNumber == otherFileNumber
+    }
+}
+
+private struct CachedSessionFile {
+    let fallbackModel: String?
+    var metadata: SessionFileMetadata
+    var readOffset: UInt64
+    var pendingData = Data()
+    var currentModel: String?
+    var events: [ParsedUsageEvent] = []
+}
+
+private enum ParsedSessionLine {
+    case model(String)
+    case event(ParsedUsageEvent)
+    case ignored
+    case incomplete
+}
+
 final class CodexUsageStore {
+    private static let eventMessageMarker = Data(#""type":"event_msg""#.utf8)
+    private static let turnContextMarker = Data(#""type":"turn_context""#.utf8)
+
     private let config: AppConfig
     private let calendar: Calendar
     private let isoFormatter: ISO8601DateFormatter
     private let isoFormatterWithoutFractions: ISO8601DateFormatter
+    private var cachedSessionFiles: [String: CachedSessionFile] = [:]
 
     init(config: AppConfig, calendar: Calendar = .current) {
         self.config = config
@@ -89,6 +126,7 @@ final class CodexUsageStore {
         )
 
         let sessionFiles = try recentSessionFiles(startingAt: activityStart)
+        discardCachedSessionFiles(notIn: sessionFiles)
         var today = CostSummary()
         var last7Days = CostSummary()
         var last30Days = CostSummary()
@@ -122,7 +160,7 @@ final class CodexUsageStore {
         var weeklyLimitReachedDate: Date?
 
         for sessionFile in sessionFiles {
-            parseSessionFile(sessionFile) { event in
+            for event in parsedEvents(in: sessionFile) {
                 if latestEventDate == nil || event.date > latestEventDate! {
                     latestEventDate = event.date
                     latestModel = event.model
@@ -151,7 +189,7 @@ final class CodexUsageStore {
                 }
 
                 guard let usage = event.usage else {
-                    return
+                    continue
                 }
 
                 let cost = estimatedCost(for: usage, model: event.model)
@@ -335,52 +373,184 @@ final class CodexUsageStore {
         return String(data: outputData, encoding: .utf8) ?? ""
     }
 
-    private func parseSessionFile(_ sessionFile: SessionFile, onEvent: (ParsedUsageEvent) -> Void) {
-        guard let content = try? String(contentsOfFile: sessionFile.path, encoding: .utf8) else {
+    private func discardCachedSessionFiles(notIn sessionFiles: [SessionFile]) {
+        let currentPaths = Set(sessionFiles.map(\.path))
+        let stalePaths = cachedSessionFiles.keys.filter { !currentPaths.contains($0) }
+
+        for path in stalePaths {
+            cachedSessionFiles.removeValue(forKey: path)
+        }
+    }
+
+    private func parsedEvents(in sessionFile: SessionFile) -> [ParsedUsageEvent] {
+        guard let metadata = sessionFileMetadata(atPath: sessionFile.path) else {
+            cachedSessionFiles.removeValue(forKey: sessionFile.path)
+            return []
+        }
+
+        var cache: CachedSessionFile
+
+        if let existingCache = cachedSessionFiles.removeValue(forKey: sessionFile.path),
+           existingCache.fallbackModel == sessionFile.model,
+           existingCache.metadata.identifiesSameFile(as: metadata),
+           metadata.size >= existingCache.readOffset,
+           (metadata.size > existingCache.readOffset
+               || metadata.modificationDate == existingCache.metadata.modificationDate) {
+            cache = existingCache
+        } else {
+            cache = CachedSessionFile(
+                fallbackModel: sessionFile.model,
+                metadata: metadata,
+                readOffset: 0,
+                currentModel: sessionFile.model
+            )
+        }
+
+        guard metadata.size > cache.readOffset else {
+            cachedSessionFiles[sessionFile.path] = cache
+            return cache.events
+        }
+
+        guard let appendedData = readSessionData(
+            atPath: sessionFile.path,
+            fromOffset: cache.readOffset
+        ) else {
+            cachedSessionFiles[sessionFile.path] = cache
+            return cache.events
+        }
+
+        cache.readOffset += UInt64(appendedData.count)
+        cache.pendingData.append(appendedData)
+        parseBufferedSessionLines(in: &cache)
+        cache.metadata = sessionFileMetadata(atPath: sessionFile.path) ?? metadata
+        cachedSessionFiles[sessionFile.path] = cache
+        return cache.events
+    }
+
+    private func sessionFileMetadata(atPath path: String) -> SessionFileMetadata? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+              let size = (attributes[.size] as? NSNumber)?.uint64Value else {
+            return nil
+        }
+
+        return SessionFileMetadata(
+            size: size,
+            modificationDate: attributes[.modificationDate] as? Date,
+            systemNumber: (attributes[.systemNumber] as? NSNumber)?.uint64Value,
+            fileNumber: (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
+        )
+    }
+
+    private func readSessionData(atPath path: String, fromOffset offset: UInt64) -> Data? {
+        guard let fileHandle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else {
+            return nil
+        }
+
+        defer {
+            try? fileHandle.close()
+        }
+
+        do {
+            try fileHandle.seek(toOffset: offset)
+            return try fileHandle.readToEnd() ?? Data()
+        } catch {
+            return nil
+        }
+    }
+
+    private func parseBufferedSessionLines(in cache: inout CachedSessionFile) {
+        var nextLineStart = cache.pendingData.startIndex
+
+        while let newlineIndex = cache.pendingData[nextLineStart...].firstIndex(of: 0x0A) {
+            let result = parsedSessionLine(
+                cache.pendingData[nextLineStart..<newlineIndex],
+                currentModel: cache.currentModel,
+                fallbackModel: cache.fallbackModel,
+                validateIrrelevantLine: false
+            )
+            apply(result, to: &cache)
+            nextLineStart = cache.pendingData.index(after: newlineIndex)
+        }
+
+        if nextLineStart != cache.pendingData.startIndex {
+            cache.pendingData = Data(cache.pendingData[nextLineStart...])
+        }
+
+        guard !cache.pendingData.isEmpty else {
             return
         }
 
-        var currentModel = sessionFile.model
+        let trailingResult = parsedSessionLine(
+            cache.pendingData,
+            currentModel: cache.currentModel,
+            fallbackModel: cache.fallbackModel,
+            validateIrrelevantLine: true
+        )
 
-        for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard line.contains(#""type":"event_msg""#) || line.contains(#""type":"turn_context""#) else {
-                continue
+        guard case .incomplete = trailingResult else {
+            apply(trailingResult, to: &cache)
+            cache.pendingData.removeAll(keepingCapacity: false)
+            return
+        }
+    }
+
+    private func parsedSessionLine(
+        _ line: Data,
+        currentModel: String?,
+        fallbackModel: String?,
+        validateIrrelevantLine: Bool
+    ) -> ParsedSessionLine {
+        let isRelevant = line.range(of: Self.eventMessageMarker) != nil
+            || line.range(of: Self.turnContextMarker) != nil
+
+        guard isRelevant else {
+            if validateIrrelevantLine,
+               (try? JSONSerialization.jsonObject(with: line)) == nil {
+                return .incomplete
             }
 
-            guard let data = String(line).data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let type = object["type"] as? String else {
-                continue
-            }
+            return .ignored
+        }
 
-            if type == "turn_context",
-               let payload = object["payload"] as? [String: Any],
-               let model = payload["model"] as? String {
-                currentModel = model
-                continue
-            }
+        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+              let type = object["type"] as? String else {
+            return .incomplete
+        }
 
-            guard type == "event_msg",
-                  let payload = object["payload"] as? [String: Any],
-                  payload["type"] as? String == "token_count",
-                  let timestamp = date(from: object["timestamp"] as? String) else {
-                continue
-            }
+        if type == "turn_context",
+           let payload = object["payload"] as? [String: Any],
+           let model = payload["model"] as? String {
+            return .model(model)
+        }
 
-            let info = payload["info"] as? [String: Any]
-            let rateLimits = payload["rate_limits"] as? [String: Any]
+        guard type == "event_msg",
+              let payload = object["payload"] as? [String: Any],
+              payload["type"] as? String == "token_count",
+              let timestamp = date(from: object["timestamp"] as? String) else {
+            return .ignored
+        }
 
-            let usage = tokenUsage(from: info?["last_token_usage"] as? [String: Any])
-            let event = ParsedUsageEvent(
-                date: timestamp,
-                model: currentModel ?? sessionFile.model,
-                usage: usage,
-                primaryLimit: rateLimit(from: rateLimits?["primary"] as? [String: Any]),
-                weeklyLimit: rateLimit(from: rateLimits?["secondary"] as? [String: Any]),
-                rateLimitReachedType: rateLimits?["rate_limit_reached_type"] as? String
-            )
+        let info = payload["info"] as? [String: Any]
+        let rateLimits = payload["rate_limits"] as? [String: Any]
 
-            onEvent(event)
+        return .event(ParsedUsageEvent(
+            date: timestamp,
+            model: currentModel ?? fallbackModel,
+            usage: tokenUsage(from: info?["last_token_usage"] as? [String: Any]),
+            primaryLimit: rateLimit(from: rateLimits?["primary"] as? [String: Any]),
+            weeklyLimit: rateLimit(from: rateLimits?["secondary"] as? [String: Any]),
+            rateLimitReachedType: rateLimits?["rate_limit_reached_type"] as? String
+        ))
+    }
+
+    private func apply(_ result: ParsedSessionLine, to cache: inout CachedSessionFile) {
+        switch result {
+        case .model(let model):
+            cache.currentModel = model
+        case .event(let event):
+            cache.events.append(event)
+        case .ignored, .incomplete:
+            break
         }
     }
 

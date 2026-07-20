@@ -2,7 +2,33 @@ import AppKit
 import Foundation
 import Sparkle
 
+private struct LeaderboardSnapshotValues: Equatable {
+    let todayTokens: Int
+    let todayCalls: Int
+    let todayEstimatedCost: Double
+    let last7DaysTokens: Int
+    let last7DaysCalls: Int
+    let last7DaysEstimatedCost: Double
+    let last30DaysTokens: Int
+    let last30DaysCalls: Int
+    let last30DaysEstimatedCost: Double
+
+    init(snapshot: CodexUsageSnapshot) {
+        todayTokens = snapshot.today.totalTokens
+        todayCalls = snapshot.today.calls
+        todayEstimatedCost = snapshot.today.estimatedCost
+        last7DaysTokens = snapshot.last7Days.totalTokens
+        last7DaysCalls = snapshot.last7Days.calls
+        last7DaysEstimatedCost = snapshot.last7Days.estimatedCost
+        last30DaysTokens = snapshot.last30Days.totalTokens
+        last30DaysCalls = snapshot.last30Days.calls
+        last30DaysEstimatedCost = snapshot.last30Days.estimatedCost
+    }
+}
+
 final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
+    private static let leaderboardRefreshInterval: TimeInterval = 5 * 60
+
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let statusMenu = NSMenu()
     private let statusMenuItem = NSMenuItem(title: "Loading Codex usage...", action: nil, keyEquivalent: "")
@@ -66,7 +92,10 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
     private var snapshot: CodexUsageSnapshot?
     private var selectedStatsRange: StatsRange = .today
     private var isRefreshing = false
+    private var isLeaderboardRefreshing = false
     private var spinnerIndex = 0
+    private var lastLeaderboardRequestDate: Date?
+    private var lastLeaderboardSnapshotValues: LeaderboardSnapshotValues?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         configureStatusItem()
@@ -82,6 +111,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
             timer = Timer.scheduledTimer(withTimeInterval: config.refreshInterval, repeats: true) { [weak self] _ in
                 self?.refresh()
             }
+            timer?.tolerance = min(max(config.refreshInterval * 0.1, 1), 15)
             refresh()
         } catch {
             showError(error)
@@ -94,7 +124,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
     }
 
     @objc private func refreshNow() {
-        refresh()
+        refresh(forceLeaderboard: true)
     }
 
     @objc private func checkForUpdates() {
@@ -132,7 +162,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         return image
     }
 
-    private func refresh() {
+    private func refresh(forceLeaderboard: Bool = false) {
         guard !isRefreshing, let store else {
             return
         }
@@ -152,12 +182,15 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
             }
 
             DispatchQueue.main.async { [weak self] in
-                self?.finishRefresh(result)
+                self?.finishRefresh(result, forceLeaderboard: forceLeaderboard)
             }
         }
     }
 
-    private func finishRefresh(_ result: Result<CodexUsageSnapshot, Error>) {
+    private func finishRefresh(
+        _ result: Result<CodexUsageSnapshot, Error>,
+        forceLeaderboard: Bool
+    ) {
         isRefreshing = false
         refreshMenuItem.isEnabled = true
         stopRefreshIndicator()
@@ -166,7 +199,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         case .success(let snapshot):
             self.snapshot = snapshot
             showSnapshot(snapshot)
-            publishLeaderboard(snapshot)
+            publishLeaderboard(snapshot, force: forceLeaderboard)
         case .failure(let error):
             showError(error)
         }
@@ -505,13 +538,31 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         statusMenuItem.title = error.localizedDescription
     }
 
-    private func publishLeaderboard(_ snapshot: CodexUsageSnapshot) {
-        guard let leaderboardClient else {
+    private func publishLeaderboard(_ snapshot: CodexUsageSnapshot, force: Bool) {
+        guard let leaderboardClient, !isLeaderboardRefreshing else {
             return
         }
 
+        let now = Date()
+        let snapshotValues = LeaderboardSnapshotValues(snapshot: snapshot)
+        let refreshIntervalElapsed = lastLeaderboardRequestDate.map {
+            now.timeIntervalSince($0) >= Self.leaderboardRefreshInterval
+        } ?? true
+
+        guard force
+            || snapshotValues != lastLeaderboardSnapshotValues
+            || refreshIntervalElapsed else {
+            return
+        }
+
+        isLeaderboardRefreshing = true
+        lastLeaderboardRequestDate = now
+        lastLeaderboardSnapshotValues = snapshotValues
+
         leaderboardClient.publish(snapshot: snapshot) { [weak self] result in
             DispatchQueue.main.async {
+                self?.isLeaderboardRefreshing = false
+
                 switch result {
                 case .success(let entries):
                     self?.leaderboardEntries = entries
