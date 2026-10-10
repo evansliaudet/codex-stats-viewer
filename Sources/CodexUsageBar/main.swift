@@ -333,7 +333,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         title: String,
         entries: [LeaderboardEntry],
         tokenValue: (LeaderboardEntry) -> Int,
-        costValue: (LeaderboardEntry) -> Double
+        costValue: (LeaderboardEntry) -> Double?
     ) -> NSMenuItem {
         let menu = NSMenu(title: title)
         menu.addItem(leaderboardItem(
@@ -347,7 +347,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
     private func leaderboardItem(
         entries: [LeaderboardEntry],
         tokenValue: (LeaderboardEntry) -> Int,
-        costValue: (LeaderboardEntry) -> Double
+        costValue: (LeaderboardEntry) -> Double?
     ) -> NSMenuItem {
         let rowHeight: CGFloat = 30
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: CGFloat(entries.count) * rowHeight))
@@ -366,12 +366,17 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
                 font: .monospacedDigitSystemFont(ofSize: 12, weight: .regular),
                 color: .secondaryLabelColor
             ))
-            view.addSubview(label(
-                formattedCurrency(costValue(entry)),
+            let cost = costValue(entry)
+            let costLabel = label(
+                cost.map { formattedCurrency($0) } ?? "—",
                 frame: NSRect(x: 252, y: y, width: 54, height: 18),
                 font: .monospacedDigitSystemFont(ofSize: 12, weight: .regular),
                 color: .secondaryLabelColor
-            ))
+            )
+            if cost == nil {
+                costLabel.toolTip = "Cost estimate unavailable. This friend may need to update their app and refresh."
+            }
+            view.addSubview(costLabel)
         }
 
         return viewItem(view)
@@ -525,13 +530,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
     }
 
     private func statusPercentageText(for snapshot: CodexUsageSnapshot?) -> String {
-        if let primaryLimit = snapshot?.primaryLimit {
-            return percentText(primaryLimit.usedPercent)
-        }
-        if let weeklyLimit = snapshot?.weeklyLimit {
-            return "W \(percentText(weeklyLimit.usedPercent))"
-        }
-        return percentText(nil)
+        percentText(snapshot?.primaryLimit?.usedPercent ?? snapshot?.weeklyLimit?.usedPercent)
     }
 
     private func showSnapshot(_ snapshot: CodexUsageSnapshot) {

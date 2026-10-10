@@ -4,13 +4,13 @@ struct LeaderboardEntry: Decodable {
     let displayName: String
     let todayTokens: Int
     let todayCalls: Int
-    let todayEstimatedCost: Double
+    let todayEstimatedCost: Double?
     let last7DaysTokens: Int
     let last7DaysCalls: Int
-    let last7DaysEstimatedCost: Double
+    let last7DaysEstimatedCost: Double?
     let last30DaysTokens: Int
     let last30DaysCalls: Int
-    let last30DaysEstimatedCost: Double
+    let last30DaysEstimatedCost: Double?
     let updatedAt: String
 
     private enum CodingKeys: String, CodingKey {
@@ -32,14 +32,31 @@ struct LeaderboardEntry: Decodable {
         displayName = try container.decode(String.self, forKey: .displayName)
         todayTokens = try container.decodeIfPresent(Int.self, forKey: .todayTokens) ?? 0
         todayCalls = try container.decodeIfPresent(Int.self, forKey: .todayCalls) ?? 0
-        todayEstimatedCost = try container.decodeIfPresent(Double.self, forKey: .todayEstimatedCost) ?? 0
+        todayEstimatedCost = Self.availableEstimate(
+            try container.decodeIfPresent(Double.self, forKey: .todayEstimatedCost),
+            tokens: todayTokens
+        )
         last7DaysTokens = try container.decodeIfPresent(Int.self, forKey: .last7DaysTokens) ?? 0
         last7DaysCalls = try container.decodeIfPresent(Int.self, forKey: .last7DaysCalls) ?? 0
-        last7DaysEstimatedCost = try container.decodeIfPresent(Double.self, forKey: .last7DaysEstimatedCost) ?? 0
+        last7DaysEstimatedCost = Self.availableEstimate(
+            try container.decodeIfPresent(Double.self, forKey: .last7DaysEstimatedCost),
+            tokens: last7DaysTokens
+        )
         last30DaysTokens = try container.decodeIfPresent(Int.self, forKey: .last30DaysTokens) ?? 0
         last30DaysCalls = try container.decodeIfPresent(Int.self, forKey: .last30DaysCalls) ?? 0
-        last30DaysEstimatedCost = try container.decodeIfPresent(Double.self, forKey: .last30DaysEstimatedCost) ?? 0
+        last30DaysEstimatedCost = Self.availableEstimate(
+            try container.decodeIfPresent(Double.self, forKey: .last30DaysEstimatedCost),
+            tokens: last30DaysTokens
+        )
         updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt) ?? ""
+    }
+
+    private static func availableEstimate(_ cost: Double?, tokens: Int) -> Double? {
+        // Older apps report zero when their pricing table does not recognize a model.
+        guard let cost, cost != 0 || tokens == 0 else {
+            return nil
+        }
+        return cost
     }
 }
 

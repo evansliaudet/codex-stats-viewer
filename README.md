@@ -2,7 +2,7 @@
 
 A tiny macOS menu-bar app that displays local Codex usage from `~/.codex`.
 
-The menu bar shows the current 5-hour percentage, or `W <percent>` for plans that only report a weekly limit.
+The menu bar shows a plain percentage: current 5-hour usage when available, otherwise weekly usage. The tooltip and dropdown identify the usage window.
 
 The dropdown shows the current 5-hour usage window, weekly usage, estimated dollars spent today, estimated dollars spent over the last 30 days, token counts, call counts, latest model, and reset times.
 
@@ -68,6 +68,8 @@ swift run
 Use `CODEX_USAGE_CONFIG=/path/to/config.json` for a custom config file.
 
 The friends leaderboard is enabled by default against the bundled Worker URL and shared Worker token. The app creates a stable local user ID on first launch and uses the Codex account name from local auth claims as the display name when available. Override the values below only when testing or pointing at another Worker.
+
+Each friend publishes their own token counts and cost estimates. `—` means the estimate is unavailable: the cost field is missing, or the friend reported zero cost despite consuming tokens. Older apps can report zero for models missing from their pricing table; that friend needs updated pricing and a refresh. The leaderboard does not include their models or input/output breakdown, so another viewer cannot recalculate the estimate from total tokens alone.
 
 Optional leaderboard environment variables:
 
