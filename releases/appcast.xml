@@ -3,6 +3,21 @@
     <channel>
         <title>Codex Usage Bar</title>
         <item>
+            <title>0.1.8</title>
+            <pubDate>Sat, 10 Oct 2026 13:04:14 +0200</pubDate>
+            <sparkle:version>9</sparkle:version>
+            <sparkle:shortVersionString>0.1.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/CodexUsageBar-0.1.8.zip" length="1345540" type="application/octet-stream" sparkle:edSignature="leip80278msb6CTeeNa5XuAFCk5A1BILWG2zQMSn8RR/sB0UKf9aiMUj7ZRdzWVobqyEx4G9jvucCiFS7Kl2CQ=="/>
+            <sparkle:deltas>
+                <enclosure url="https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/Codex%20Usage%20Bar9-8.delta" sparkle:deltaFrom="8" length="94930" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="9FUusaLSUU5qPcB0Wao0rLwlLvnsZN64IhiuxeO85471wZTHf6iG6I2EMyLYC62XBPZaEJ9EYGVTn+HT5DMzAQ=="/>
+                <enclosure url="https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/Codex%20Usage%20Bar9-7.delta" sparkle:deltaFrom="7" length="140282" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="XpUUqbRGEFk5yASdkPeYWyFToR4vS7MMyRQsFUbGDBhMnavLlq6mZL41szfEXlxmTFHPKXsZKUmuRkUB4ZQhDg=="/>
+                <enclosure url="https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/Codex%20Usage%20Bar9-6.delta" sparkle:deltaFrom="6" length="147974" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="nF9FYTPObxejw0ckNT++sgbYFR6wFbuSXMv+Ndt0dDwCmsRZx6bbjRWJ3O4M7es80NEbign9usU6Xb52it6hBQ=="/>
+                <enclosure url="https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/Codex%20Usage%20Bar9-5.delta" sparkle:deltaFrom="5" length="174386" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="eeqdTTei+ygZQ8zgo727mVDef/oBx7N8/8wYe8iIgIYtKkQHn4o3Fp92Ei9j/Ut5MEg5aMnTpgEONs4IS6zKDg=="/>
+                <enclosure url="https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/Codex%20Usage%20Bar9-4.delta" sparkle:deltaFrom="4" length="193646" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="40zz3Mj9r279b9HhuOoliv2ZQ7PqK0h8AIzuMTuGoPE118wmIghhEnlGO4jZfqBLGni+Y2HzkdUyWL9uxKG4BQ=="/>
+            </sparkle:deltas>
+        </item>
+        <item>
             <title>0.1.7</title>
             <pubDate>Mon, 20 Jul 2026 17:52:53 +0200</pubDate>
             <sparkle:version>8</sparkle:version>
@@ -30,21 +45,6 @@
                 <enclosure url="https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/Codex%20Usage%20Bar7-4.delta" sparkle:deltaFrom="4" length="134306" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="DJ4YICqCEjLjdZYtmpOJqMi9aoE+KZHbxIJ4CAUqUiOP2AMgVd5mnsezVipVTCC68KPkfITfM3nuKXN0oQ4sDQ=="/>
                 <enclosure url="https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/Codex%20Usage%20Bar7-3.delta" sparkle:deltaFrom="3" length="173606" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="Ysf0jri+a7Qbr6NFUwzQrIjPVDGnXufKlHtEoXi8SXmMfmTRfydMiH7xaMKMbl+EWWe1VPBs/SfDmS8av9rzDw=="/>
                 <enclosure url="https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/Codex%20Usage%20Bar7-2.delta" sparkle:deltaFrom="2" length="173006" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="4t5YjTs89Cxcyef0g0wYxkVwQbk9jlpuyXEhJmdSv4Cc5KVRTunF39cvM1dP4nuVu/6wjfQgpE2rL8Kb0EGUCg=="/>
-            </sparkle:deltas>
-        </item>
-        <item>
-            <title>0.1.5</title>
-            <pubDate>Sun, 28 Jun 2026 12:48:28 +0200</pubDate>
-            <sparkle:version>6</sparkle:version>
-            <sparkle:shortVersionString>0.1.5</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/CodexUsageBar-0.1.5.zip" length="1299922" type="application/octet-stream" sparkle:edSignature="LyfLTan3Nibc3WuYzH8gh4n00FPUqtEkxpCts9Dip8yKkwCkbEcvaiCpHI1fZvS6D92OB8MpBVVr5C8WhoLAAg=="/>
-            <sparkle:deltas>
-                <enclosure url="https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/Codex%20Usage%20Bar6-5.delta" sparkle:deltaFrom="5" length="99910" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="4qy8BLfEU8jU4daxy16RobQlRa3xnJ26sxC1EizPE3GDeXRU0Vr/krKTY6pEtj2jNqlOncJ0RuzOxS/jASG0DA=="/>
-                <enclosure url="https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/Codex%20Usage%20Bar6-4.delta" sparkle:deltaFrom="4" length="127650" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="5SZU7jPMUqQdKrxuMmfKkWXkcWVjwTGdvh2utZyE6iBiN9s8HlRbw3bCaeWec56APmHN6eMSbUxLIYwk0j/rAQ=="/>
-                <enclosure url="https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/Codex%20Usage%20Bar6-3.delta" sparkle:deltaFrom="3" length="170534" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="CmyJriRbG+WT823IAuZvUHEGwDIlmdeLT1BTzpdBgaZMWl8W7mGzT/iHCQZx42tAwYs7YH5KPIuptPnFYaSkAw=="/>
-                <enclosure url="https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/Codex%20Usage%20Bar6-2.delta" sparkle:deltaFrom="2" length="170034" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="FhFFmY1SA940gmvxL9n4HRTaefcTglvNLZWSbte1Z174tXfOQDUUkoNJpoFSauG8dU1BGcZ81rxrpQNbsRFJCg=="/>
-                <enclosure url="https://raw.githubusercontent.com/evansliaudet/codex-stats-viewer/main/releases/Codex%20Usage%20Bar6-1.delta" sparkle:deltaFrom="1" length="170714" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="70vNufCIaY50XWxX61wvkORrlzBG/gHMI0M6cf52jV3IlquyT5kGUc9tSuhNaBHAuGxAGMdSHII0Ax9LFf3JBw=="/>
             </sparkle:deltas>
         </item>
     </channel>
