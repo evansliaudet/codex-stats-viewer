@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 
 struct CodexUsageSnapshot {
     let capturedAt: Date
@@ -47,6 +48,7 @@ struct UsageBucket {
 struct TokenUsage {
     let inputTokens: Int
     let cachedInputTokens: Int
+    let cacheWriteInputTokens: Int
     let outputTokens: Int
     let totalTokens: Int
 }
@@ -90,8 +92,8 @@ private enum ParsedSessionLine {
 }
 
 final class CodexUsageStore {
-    private static let eventMessageMarker = Data(#""type":"event_msg""#.utf8)
-    private static let turnContextMarker = Data(#""type":"turn_context""#.utf8)
+    private static let eventMessageMarker = Data(#""event_msg""#.utf8)
+    private static let turnContextMarker = Data(#""turn_context""#.utf8)
 
     private let config: AppConfig
     private let calendar: Calendar
@@ -110,8 +112,7 @@ final class CodexUsageStore {
         isoFormatterWithoutFractions.formatOptions = [.withInternetDateTime]
     }
 
-    func loadSnapshot() throws -> CodexUsageSnapshot {
-        let now = Date()
+    func loadSnapshot(now: Date = Date()) throws -> CodexUsageSnapshot {
         let todayStart = calendar.startOfDay(for: now)
         let last7DaysStart = calendar.date(byAdding: .day, value: -7, to: now)
             ?? now.addingTimeInterval(-7 * 24 * 60 * 60)
@@ -154,8 +155,7 @@ final class CodexUsageStore {
         var latestModel: String?
         var primaryLimit: RateLimitSnapshot?
         var weeklyLimit: RateLimitSnapshot?
-        var primaryLimitDate: Date?
-        var weeklyLimitDate: Date?
+        var rateLimitDate: Date?
         var primaryLimitReachedDate: Date?
         var weeklyLimitReachedDate: Date?
 
@@ -166,16 +166,11 @@ final class CodexUsageStore {
                     latestModel = event.model
                 }
 
-                if let eventPrimaryLimit = event.primaryLimit,
-                   primaryLimitDate == nil || event.date > primaryLimitDate! {
-                    primaryLimit = eventPrimaryLimit
-                    primaryLimitDate = event.date
-                }
-
-                if let eventWeeklyLimit = event.weeklyLimit,
-                   weeklyLimitDate == nil || event.date > weeklyLimitDate! {
-                    weeklyLimit = eventWeeklyLimit
-                    weeklyLimitDate = event.date
+                if event.hasRateLimits,
+                   rateLimitDate == nil || event.date > rateLimitDate! {
+                    primaryLimit = event.primaryLimit
+                    weeklyLimit = event.weeklyLimit
+                    rateLimitDate = event.date
                 }
 
                 if event.reachedPrimaryLimit,
@@ -244,16 +239,25 @@ final class CodexUsageStore {
         }
 
         if let primaryLimitReachedDate,
-           primaryLimitDate == nil || primaryLimitReachedDate > primaryLimitDate! {
-            primaryLimit = RateLimitSnapshot(
-                usedPercent: 100,
-                windowMinutes: primaryLimit?.windowMinutes ?? 300,
-                resetsAt: primaryLimit?.resetsAt
-            )
+           rateLimitDate == nil || primaryLimitReachedDate > rateLimitDate! {
+            if primaryLimit == nil, weeklyLimit != nil {
+                // "primary" is the weekly window on weekly-only plans.
+                weeklyLimit = RateLimitSnapshot(
+                    usedPercent: 100,
+                    windowMinutes: 10_080,
+                    resetsAt: weeklyLimit?.resetsAt
+                )
+            } else {
+                primaryLimit = RateLimitSnapshot(
+                    usedPercent: 100,
+                    windowMinutes: primaryLimit?.windowMinutes ?? 300,
+                    resetsAt: primaryLimit?.resetsAt
+                )
+            }
         }
 
         if let weeklyLimitReachedDate,
-           weeklyLimitDate == nil || weeklyLimitReachedDate > weeklyLimitDate! {
+           rateLimitDate == nil || weeklyLimitReachedDate > rateLimitDate! {
             weeklyLimit = RateLimitSnapshot(
                 usedPercent: 100,
                 windowMinutes: weeklyLimit?.windowMinutes ?? 10_080,
@@ -326,51 +330,48 @@ final class CodexUsageStore {
         order by updated_at desc
         """
 
-        let output = try runSQLite(query: query)
+        // Query SQLite directly: waiting on a subprocess before draining its pipe can
+        // deadlock once a user's thread index grows beyond the pipe's capacity.
+        var database: OpaquePointer?
+        let openResult = sqlite3_open_v2(config.stateDatabaseURL.path, &database, SQLITE_OPEN_READONLY, nil)
+        defer { sqlite3_close(database) }
+        guard openResult == SQLITE_OK, let database else {
+            let message = database.map { String(cString: sqlite3_errmsg($0)) } ?? "Could not open database."
+            throw CodexUsageError.sqlite(message)
+        }
+        sqlite3_busy_timeout(database, 1_000)
+
+        var statement: OpaquePointer?
+        let prepareResult = sqlite3_prepare_v2(database, query, -1, &statement, nil)
+        defer { sqlite3_finalize(statement) }
+        guard prepareResult == SQLITE_OK, let statement else {
+            throw CodexUsageError.sqlite(String(cString: sqlite3_errmsg(database)))
+        }
+
         var seenPaths = Set<String>()
         var sessionFiles: [SessionFile] = []
-
-        for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
-            let columns = line.split(separator: "\t", omittingEmptySubsequences: false)
-            guard let firstColumn = columns.first else {
+        while true {
+            let result = sqlite3_step(statement)
+            if result == SQLITE_DONE {
+                break
+            }
+            guard result == SQLITE_ROW else {
+                throw CodexUsageError.sqlite(String(cString: sqlite3_errmsg(database)))
+            }
+            guard let pathValue = sqlite3_column_text(statement, 0) else {
                 continue
             }
 
-            let path = String(firstColumn)
-            guard FileManager.default.fileExists(atPath: path), !seenPaths.contains(path) else {
+            let path = String(cString: pathValue)
+            guard seenPaths.insert(path).inserted,
+                  FileManager.default.fileExists(atPath: path) else {
                 continue
             }
-
-            seenPaths.insert(path)
-            let model = columns.count > 1 && !columns[1].isEmpty ? String(columns[1]) : nil
-            sessionFiles.append(SessionFile(path: path, model: model))
+            let model = sqlite3_column_text(statement, 1).map { String(cString: $0) } ?? ""
+            sessionFiles.append(SessionFile(path: path, model: model.isEmpty ? nil : model))
         }
 
         return sessionFiles
-    }
-
-    private func runSQLite(query: String) throws -> String {
-        let process = Process()
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
-        process.arguments = ["-separator", "\t", config.stateDatabaseURL.path, query]
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-
-        if process.terminationStatus != 0 {
-            let errorText = String(data: errorData, encoding: .utf8) ?? "sqlite3 failed"
-            throw CodexUsageError.sqlite(errorText.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-
-        return String(data: outputData, encoding: .utf8) ?? ""
     }
 
     private func discardCachedSessionFiles(notIn sessionFiles: [SessionFile]) {
@@ -531,14 +532,20 @@ final class CodexUsageStore {
         }
 
         let info = payload["info"] as? [String: Any]
-        let rateLimits = payload["rate_limits"] as? [String: Any]
+        let reportedRateLimits = payload["rate_limits"] as? [String: Any]
+        let limitID = reportedRateLimits?["limit_id"] as? String
+        let rateLimits = limitID == nil || limitID == "codex" ? reportedRateLimits : nil
+        let limits = ["primary", "secondary"].compactMap {
+            rateLimit(from: rateLimits?[$0] as? [String: Any])
+        }
 
         return .event(ParsedUsageEvent(
             date: timestamp,
             model: currentModel ?? fallbackModel,
             usage: tokenUsage(from: info?["last_token_usage"] as? [String: Any]),
-            primaryLimit: rateLimit(from: rateLimits?["primary"] as? [String: Any]),
-            weeklyLimit: rateLimit(from: rateLimits?["secondary"] as? [String: Any]),
+            hasRateLimits: !limits.isEmpty,
+            primaryLimit: limits.first { $0.windowMinutes == 300 },
+            weeklyLimit: limits.first { $0.windowMinutes == 10_080 },
             rateLimitReachedType: rateLimits?["rate_limit_reached_type"] as? String
         ))
     }
@@ -565,6 +572,7 @@ final class CodexUsageStore {
         return TokenUsage(
             inputTokens: inputTokens,
             cachedInputTokens: intValue(dictionary["cached_input_tokens"]) ?? 0,
+            cacheWriteInputTokens: intValue(dictionary["cache_write_input_tokens"]) ?? 0,
             outputTokens: outputTokens,
             totalTokens: totalTokens
         )
@@ -620,12 +628,14 @@ final class CodexUsageStore {
             return 0
         }
 
-        let uncachedInputTokens = max(usage.inputTokens - usage.cachedInputTokens, 0)
+        let uncachedInputTokens = max(usage.inputTokens - usage.cachedInputTokens - usage.cacheWriteInputTokens, 0)
         let inputCost = Double(uncachedInputTokens) / 1_000_000 * price.inputPerMillion
         let cachedInputCost = Double(usage.cachedInputTokens) / 1_000_000 * price.cachedInputPerMillion
+        let cacheWriteCost = Double(usage.cacheWriteInputTokens) / 1_000_000
+            * (price.cacheWriteInputPerMillion ?? price.inputPerMillion)
         let outputCost = Double(usage.outputTokens) / 1_000_000 * price.outputPerMillion
 
-        return inputCost + cachedInputCost + outputCost
+        return inputCost + cachedInputCost + cacheWriteCost + outputCost
     }
 
     private func date(from string: String?) -> Date? {
@@ -665,6 +675,7 @@ private struct ParsedUsageEvent {
     let date: Date
     let model: String?
     let usage: TokenUsage?
+    let hasRateLimits: Bool
     let primaryLimit: RateLimitSnapshot?
     let weeklyLimit: RateLimitSnapshot?
     let rateLimitReachedType: String?

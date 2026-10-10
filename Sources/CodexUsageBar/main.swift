@@ -222,7 +222,7 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
     }
 
     private func updateRefreshIndicator() {
-        let percentageText = percentText(snapshot?.primaryLimit?.usedPercent)
+        let percentageText = statusPercentageText(for: snapshot)
         let spinnerText = spinnerFrames[spinnerIndex % spinnerFrames.count]
         spinnerIndex += 1
         setStatusText("\(percentageText) \(spinnerText)")
@@ -524,10 +524,20 @@ final class CodexUsageBarApp: NSObject, NSApplicationDelegate {
         return textField
     }
 
+    private func statusPercentageText(for snapshot: CodexUsageSnapshot?) -> String {
+        if let primaryLimit = snapshot?.primaryLimit {
+            return percentText(primaryLimit.usedPercent)
+        }
+        if let weeklyLimit = snapshot?.weeklyLimit {
+            return "W \(percentText(weeklyLimit.usedPercent))"
+        }
+        return percentText(nil)
+    }
+
     private func showSnapshot(_ snapshot: CodexUsageSnapshot) {
         let primaryText = percentText(snapshot.primaryLimit?.usedPercent)
         let weeklyText = percentText(snapshot.weeklyLimit?.usedPercent)
-        setStatusText(primaryText)
+        setStatusText(statusPercentageText(for: snapshot))
         statusItem.button?.toolTip = "Codex usage: \(primaryText) in 5h window, \(weeklyText) weekly"
         statusMenuItem.title = "Codex usage"
     }

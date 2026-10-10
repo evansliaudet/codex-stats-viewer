@@ -2,11 +2,7 @@
 
 A tiny macOS menu-bar app that displays local Codex usage from `~/.codex`.
 
-The menu bar shows:
-
-```text
-5h <percent> | W <percent>
-```
+The menu bar shows the current 5-hour percentage, or `W <percent>` for plans that only report a weekly limit.
 
 The dropdown shows the current 5-hour usage window, weekly usage, estimated dollars spent today, estimated dollars spent over the last 30 days, token counts, call counts, latest model, and reset times.
 
@@ -14,20 +10,22 @@ The dropdown shows the current 5-hour usage window, weekly usage, estimated doll
 
 Codex writes thread metadata to `~/.codex/state_5.sqlite`. This app queries that database for recent rollout JSONL files, then parses `event_msg` records whose payload type is `token_count`.
 
-Usage windows come from the latest Codex-provided `rate_limits` object:
+Usage windows come from the latest Codex-provided `rate_limits` object for the `codex` limit (or older records without a limit ID). Windows are identified by their reported duration: 300 minutes for 5-hour usage and 10,080 minutes for weekly usage. Weekly-only plans can report their weekly window in `primary`.
 
-- `primary`: current 5-hour window
-- `secondary`: weekly window
+The state database is opened read-only with SQLite directly, so large thread indexes do not stall on subprocess output.
 
 Spend is estimated from each turn's `last_token_usage`:
 
 ```text
-uncached input * input price + cached input * cached price + output * output price
+uncached input * input price + cached input * cached price
++ cache-write input * cache-write price + output * output price
 ```
 
-Prices are API-equivalent estimates, not your ChatGPT subscription invoice. Defaults use OpenAI's published standard short-context API rates for the included models. Override them if you use another tier, long-context pricing, priority processing, or custom pricing.
+Prices are API-equivalent estimates, not your ChatGPT subscription invoice. Defaults were verified on October 10, 2026 and include GPT-6 Astra, GPT-6.1 Sol, GPT-6 Sol, GPT-6 Luna, and updated GPT-5.6 rates alongside historical Codex models. They use published standard short-context rates; override them for long contexts, Fast/Ultrafast processing, regional surcharges, or custom pricing. Models without a configured price contribute tokens and calls but no estimated cost.
 
-Source: https://platform.openai.com/docs/pricing
+`cacheWriteInputPerMillion` is optional. If omitted in a custom price, cache-write tokens use the regular input rate. Cache-write tokens are excluded from regular input to avoid counting them twice.
+
+Sources: [OpenAI API pricing](https://developers.openai.com/api/docs/pricing), [GPT-5.2-Codex](https://developers.openai.com/api/docs/models/gpt-5.2-codex), [GPT-5.1-Codex Mini](https://developers.openai.com/api/docs/models/gpt-5.1-codex-mini).
 
 ## Configure
 
@@ -49,10 +47,11 @@ Example:
   "leaderboardUserId": "optional-fixed-user-id",
   "leaderboardDisplayName": "Optional Display Name",
   "modelPrices": {
-    "gpt-5.5": {
-      "inputPerMillion": 5.0,
-      "cachedInputPerMillion": 0.5,
-      "outputPerMillion": 30.0
+    "gpt-6.1-sol": {
+      "inputPerMillion": 2.0,
+      "cachedInputPerMillion": 0.1,
+      "outputPerMillion": 10.0,
+      "cacheWriteInputPerMillion": 2.5
     }
   }
 }
@@ -85,6 +84,12 @@ swift run
 
 ```sh
 swift run
+```
+
+## Test
+
+```sh
+swift test
 ```
 
 ## Build the macOS App

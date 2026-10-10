@@ -240,18 +240,27 @@ struct AppConfig {
         NSString(string: path).expandingTildeInPath
     }
 
-    private static func defaultModelPrices() -> [String: ModelPrice] {
+    static func defaultModelPrices() -> [String: ModelPrice] {
         [
+            // Published standard short-context API rates, verified 2026-10-10.
+            // https://developers.openai.com/api/docs/pricing
+            "gpt-6-astra": ModelPrice(inputPerMillion: 10.00, cachedInputPerMillion: 1.00, outputPerMillion: 50.00, cacheWriteInputPerMillion: 12.50),
+            "gpt-6.1-sol": ModelPrice(inputPerMillion: 2.00, cachedInputPerMillion: 0.10, outputPerMillion: 10.00, cacheWriteInputPerMillion: 2.50),
+            "gpt-6-sol": ModelPrice(inputPerMillion: 2.00, cachedInputPerMillion: 0.20, outputPerMillion: 10.00, cacheWriteInputPerMillion: 2.50),
+            "gpt-6-luna": ModelPrice(inputPerMillion: 0.10, cachedInputPerMillion: 0.01, outputPerMillion: 0.50, cacheWriteInputPerMillion: 0.125),
+            "gpt-5.6-sol": ModelPrice(inputPerMillion: 4.00, cachedInputPerMillion: 0.40, outputPerMillion: 20.00, cacheWriteInputPerMillion: 5.00),
+            "gpt-5.6-terra": ModelPrice(inputPerMillion: 2.00, cachedInputPerMillion: 0.20, outputPerMillion: 12.00, cacheWriteInputPerMillion: 2.50),
+            "gpt-5.6-luna": ModelPrice(inputPerMillion: 0.20, cachedInputPerMillion: 0.02, outputPerMillion: 1.20, cacheWriteInputPerMillion: 0.25),
+            // Preserve the previous estimate for the legacy unsuffixed rollout identifier.
             "gpt-5.6": ModelPrice(inputPerMillion: 5.00, cachedInputPerMillion: 0.50, outputPerMillion: 30.00),
-            "gpt-5.6-sol": ModelPrice(inputPerMillion: 5.00, cachedInputPerMillion: 0.50, outputPerMillion: 30.00),
-            "gpt-5.6-terra": ModelPrice(inputPerMillion: 2.50, cachedInputPerMillion: 0.25, outputPerMillion: 15.00),
-            "gpt-5.6-luna": ModelPrice(inputPerMillion: 1.00, cachedInputPerMillion: 0.10, outputPerMillion: 6.00),
             "gpt-5.5": ModelPrice(inputPerMillion: 5.00, cachedInputPerMillion: 0.50, outputPerMillion: 30.00),
             "gpt-5.5-pro": ModelPrice(inputPerMillion: 30.00, cachedInputPerMillion: 0, outputPerMillion: 180.00),
             "gpt-5.4": ModelPrice(inputPerMillion: 2.50, cachedInputPerMillion: 0.25, outputPerMillion: 15.00),
             "gpt-5.4-mini": ModelPrice(inputPerMillion: 0.75, cachedInputPerMillion: 0.075, outputPerMillion: 4.50),
             "gpt-5.4-nano": ModelPrice(inputPerMillion: 0.20, cachedInputPerMillion: 0.02, outputPerMillion: 1.25),
             "gpt-5.3-codex": ModelPrice(inputPerMillion: 1.75, cachedInputPerMillion: 0.175, outputPerMillion: 14.00),
+            "gpt-5.2-codex": ModelPrice(inputPerMillion: 1.75, cachedInputPerMillion: 0.175, outputPerMillion: 14.00),
+            "gpt-5.1-codex-mini": ModelPrice(inputPerMillion: 0.25, cachedInputPerMillion: 0.025, outputPerMillion: 2.00),
             "chat-latest": ModelPrice(inputPerMillion: 5.00, cachedInputPerMillion: 0.50, outputPerMillion: 30.00),
         ]
     }
@@ -261,6 +270,19 @@ struct ModelPrice: Decodable {
     let inputPerMillion: Double
     let cachedInputPerMillion: Double
     let outputPerMillion: Double
+    let cacheWriteInputPerMillion: Double?
+
+    init(
+        inputPerMillion: Double,
+        cachedInputPerMillion: Double,
+        outputPerMillion: Double,
+        cacheWriteInputPerMillion: Double? = nil
+    ) {
+        self.inputPerMillion = inputPerMillion
+        self.cachedInputPerMillion = cachedInputPerMillion
+        self.outputPerMillion = outputPerMillion
+        self.cacheWriteInputPerMillion = cacheWriteInputPerMillion
+    }
 }
 
 struct LeaderboardConfig {

@@ -7,10 +7,11 @@
   "leaderboardUserId": "optional-fixed-user-id",
   "leaderboardDisplayName": "Optional Display Name",
   "modelPrices": {
-    "gpt-5.5": {
-      "inputPerMillion": 5.0,
-      "cachedInputPerMillion": 0.5,
-      "outputPerMillion": 30.0
+    "gpt-6.1-sol": {
+      "inputPerMillion": 2.0,
+      "cachedInputPerMillion": 0.1,
+      "outputPerMillion": 10.0,
+      "cacheWriteInputPerMillion": 2.5
     }
   }
 }

@@ -21,5 +21,9 @@ let package = Package(
             ],
             path: "Sources/CodexUsageBar"
         ),
+        .testTarget(
+            name: "CodexUsageBarTests",
+            dependencies: ["CodexUsageBar"]
+        ),
     ]
 )
